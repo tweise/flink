@@ -22,9 +22,13 @@ import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.util.Collector;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Implements a streaming windowed version of the "WordCount" program.
@@ -42,13 +46,10 @@ public class SocketWindowWordCount {
 
 	public static void main(String[] args) throws Exception {
 
-		// the host and the port to connect to
-		final String hostname;
-		final int port;
+		final int parallelism;
 		try {
 			final ParameterTool params = ParameterTool.fromArgs(args);
-			hostname = params.has("hostname") ? params.get("hostname") : "localhost";
-			port = params.getInt("port");
+			parallelism = params.has("parallelism") ? params.getInt("parallelism") : 1;
 		} catch (Exception e) {
 			System.err.println("No port specified. Please run 'SocketWindowWordCount " +
 				"--hostname <hostname> --port <port>', where hostname (localhost by default) " +
@@ -60,12 +61,33 @@ public class SocketWindowWordCount {
 
 		// get the execution environment
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setParallelism(parallelism);
 
-		// get input data by connecting to the socket
-		DataStream<String> text = env.socketTextStream(hostname, port, "\n");
+		DataStreamSource<String> source =
+			env
+				.addSource(
+					new RichParallelSourceFunction<String>() {
+						private AtomicBoolean cancelled = new AtomicBoolean(false);
+
+						@Override
+						public void run(SourceContext<String> ctx) throws Exception {
+							int counter = 0;
+							while (!cancelled.get()) {
+								String value = Thread.currentThread().getId() + "-" + counter;
+								counter++;
+								ctx.collect(value);
+								Thread.sleep(10);
+							}
+						}
+
+						@Override
+						public void cancel() {
+							cancelled.set(true);
+						}
+					});
 
 		// parse the data, group it, window it, and aggregate the counts
-		DataStream<WordWithCount> windowCounts = text
+		DataStream<WordWithCount> windowCounts = source
 
 				.flatMap(new FlatMapFunction<String, WordWithCount>() {
 					@Override
@@ -87,9 +109,9 @@ public class SocketWindowWordCount {
 				});
 
 		// print the results with a single thread, rather than in parallel
-		windowCounts.print().setParallelism(1);
+		windowCounts.print();
 
-		env.execute("Socket Window WordCount");
+		env.execute("Synthetic Window WordCount");
 	}
 
 	// ------------------------------------------------------------------------
