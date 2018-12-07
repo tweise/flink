@@ -28,6 +28,7 @@ import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 
 import org.slf4j.Logger;
@@ -64,6 +65,8 @@ public class RemoteStreamEnvironment extends StreamExecutionEnvironment {
 
 	/** The classpaths that need to be attached to each job. */
 	private final List<URL> globalClasspaths;
+
+	private SavepointRestoreSettings savepointRestoreSettings;
 
 	/**
 	 * Creates a new RemoteStreamEnvironment that points to the master
@@ -169,6 +172,10 @@ public class RemoteStreamEnvironment extends StreamExecutionEnvironment {
 		}
 	}
 
+	public void setSavepointRestoreSettings(SavepointRestoreSettings savepointRestoreSettings) {
+		this.savepointRestoreSettings = savepointRestoreSettings;
+	}
+
 	@Override
 	public JobExecutionResult execute(String jobName) throws ProgramInvocationException {
 		StreamGraph streamGraph = getStreamGraph();
@@ -213,8 +220,12 @@ public class RemoteStreamEnvironment extends StreamExecutionEnvironment {
 
 		client.setPrintStatusDuringExecution(getConfig().isSysoutLoggingEnabled());
 
+		SavepointRestoreSettings savepointRestoreSettings = this.savepointRestoreSettings != null ?
+			this.savepointRestoreSettings : SavepointRestoreSettings.none();
+
 		try {
-			return client.run(streamGraph, jarFiles, globalClasspaths, usercodeClassLoader).getJobExecutionResult();
+			return client.run(streamGraph, jarFiles, globalClasspaths, usercodeClassLoader, savepointRestoreSettings)
+				.getJobExecutionResult();
 		}
 		catch (ProgramInvocationException e) {
 			throw e;
