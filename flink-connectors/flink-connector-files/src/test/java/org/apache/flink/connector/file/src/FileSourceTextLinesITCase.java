@@ -21,6 +21,8 @@ package org.apache.flink.connector.file.src;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
+import org.apache.flink.api.connector.source.Source;
+import org.apache.flink.connector.base.source.hybrid.HybridSource;
 import org.apache.flink.connector.file.src.reader.TextLineFormat;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.highavailability.nonha.embedded.HaLeadershipControl;
@@ -50,6 +52,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -116,16 +119,40 @@ public class FileSourceTextLinesITCase extends TestLogger {
         // default
         writeHiddenJunkFiles(testDir);
 
-        final FileSource<String> source =
+        final FileSource<String> fileSource =
                 FileSource.forRecordStreamFormat(new TextLineFormat(), Path.fromLocalFile(testDir))
                         .build();
+        // directory doesn't matter; splits are supplied by converter
+        final FileSource<String> fileSource2 =
+                FileSource.forRecordStreamFormat(new TextLineFormat(), Path.fromLocalFile(testDir))
+                        .build();
+
+        HybridSource.SourceChain<String, FileSourceSplit, PendingSplitsCheckpoint<FileSourceSplit>>
+                sourceChain = HybridSource.SourceChain.of(fileSource);
+        sourceChain =
+                sourceChain.add(
+                        fileSource2,
+                        (pendingSplitsCheckpoint -> {
+                            // TODO: pendingSplitsCheckpoint doesn't have alreadyProcessedPaths (or
+                            // other info about finished splits)
+                            // all files processed by previous source, do nothing
+                            return PendingSplitsCheckpoint.fromCollectionSnapshot(
+                                    Collections.emptyList());
+                        }));
+
+        // TODO: HybridSource checkpointing
+        Source source =
+                FailoverType.NONE.equals(failoverType)
+                        ? new HybridSource<>(sourceChain)
+                        : fileSource;
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(PARALLELISM);
         env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 
         final DataStream<String> stream =
-                env.fromSource(source, WatermarkStrategy.noWatermarks(), "file-source");
+                env.fromSource(source, WatermarkStrategy.noWatermarks(), "file-source")
+                        .returns(String.class);
 
         final DataStream<String> streamFailingInTheMiddleOfReading =
                 RecordCounterToFail.wrapWithFailureAfter(stream, LINES.length / 2);

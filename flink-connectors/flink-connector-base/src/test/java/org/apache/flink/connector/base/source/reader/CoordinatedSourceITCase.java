@@ -22,7 +22,9 @@ import org.apache.flink.api.common.accumulators.ListAccumulator;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
+import org.apache.flink.api.connector.source.mocks.MockSourceSplit;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.base.source.hybrid.HybridSource;
 import org.apache.flink.connector.base.source.reader.mocks.MockBaseSource;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -31,6 +33,7 @@ import org.apache.flink.test.util.AbstractTestBase;
 
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -38,6 +41,57 @@ import static org.junit.Assert.assertEquals;
 
 /** IT case for the {@link Source} with a coordinator. */
 public class CoordinatedSourceITCase extends AbstractTestBase {
+
+    @Test
+    public void testHybridSource() throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+        HybridSource.SourceChain<Integer, MockSourceSplit, List<MockSourceSplit>> sourceChain;
+        boolean withSourceStartPosition = false;
+        if (withSourceStartPosition) {
+            // static start position, which should be the more common approach
+            sourceChain =
+                    HybridSource.SourceChain.of(
+                            new MockBaseSource(2, 10, Boundedness.BOUNDED),
+                            new MockBaseSource(2, 10, 20, Boundedness.BOUNDED));
+        } else {
+            // position conversion at switch time
+            // start position can be derived from previous enumerator state
+            sourceChain =
+                    new HybridSource.SourceChain<>(new MockBaseSource(2, 10, Boundedness.BOUNDED));
+            sourceChain =
+                    sourceChain.add(
+                            new MockBaseSource(1, 1, Boundedness.BOUNDED),
+                            (mockSourceSplits -> {
+                                int numSplits = 2;
+                                int numRecordsPerSplit = 10;
+                                int startingValue = 20;
+                                Boundedness boundedness = Boundedness.BOUNDED;
+                                // TODO: convert source parameters to splits from
+                                // MockBaseSource.createEnumerator - this should be a
+                                // shared utility
+                                List<MockSourceSplit> splits = new ArrayList<>();
+                                for (int i = 0; i < numSplits; i++) {
+                                    int endIndex =
+                                            boundedness == Boundedness.BOUNDED
+                                                    ? numRecordsPerSplit
+                                                    : Integer.MAX_VALUE;
+                                    MockSourceSplit split = new MockSourceSplit(i, 0, endIndex);
+                                    for (int j = 0; j < numRecordsPerSplit; j++) {
+                                        split.addRecord(startingValue + i * numRecordsPerSplit + j);
+                                    }
+                                    splits.add(split);
+                                }
+                                return splits;
+                            }));
+        }
+        Source source = new HybridSource<>(sourceChain);
+        DataStream<Integer> stream =
+                env.fromSource(source, WatermarkStrategy.noWatermarks(), "TestingSource")
+                        .returns(Integer.class);
+        // env.setParallelism(1);
+        executeAndVerify(env, stream, 40);
+    }
 
     @Test
     public void testEnumeratorReaderCommunication() throws Exception {
