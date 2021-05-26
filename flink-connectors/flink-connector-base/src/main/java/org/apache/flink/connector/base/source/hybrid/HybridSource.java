@@ -18,6 +18,7 @@
 
 package org.apache.flink.connector.base.source.hybrid;
 
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceReader;
@@ -41,12 +42,18 @@ import java.util.List;
 import java.util.function.Function;
 
 /** Hybrid source that switches underlying sources based on configurable source chain. */
+@PublicEvolving
 public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourceEnumState> {
 
     private final SourceChain<T, ? extends SourceSplit, ?> sourceChain;
 
     public HybridSource(SourceChain<T, ? extends SourceSplit, ?> sourceChain) {
         Preconditions.checkArgument(!sourceChain.sources.isEmpty());
+        for (int i = 0; i < sourceChain.sources.size() - 1; i++) {
+            Preconditions.checkArgument(
+                    Boundedness.BOUNDED.equals(sourceChain.sources.get(i).f0.getBoundedness()),
+                    "All sources except the final source need to be bounded.");
+        }
         this.sourceChain = sourceChain;
     }
 
