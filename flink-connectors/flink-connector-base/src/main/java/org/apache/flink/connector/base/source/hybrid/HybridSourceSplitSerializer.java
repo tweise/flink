@@ -18,6 +18,7 @@
 
 package org.apache.flink.connector.base.source.hybrid;
 
+import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.util.Preconditions;
 
@@ -28,60 +29,49 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 
-/** The {@link SimpleVersionedSerializer Serializer} for the enumerator state. */
-public class HybridSourceEnumStateSerializer
-        implements SimpleVersionedSerializer<HybridSourceEnumState> {
+/** Serializes splits by delegating to the source-indexed underlying split serializer. */
+public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<HybridSourceSplit> {
 
-    private static final int CURRENT_VERSION = 0;
+    final List<SimpleVersionedSerializer<SourceSplit>> serializers;
 
-    final List<SimpleVersionedSerializer<Object>> serializers;
-
-    public HybridSourceEnumStateSerializer(List<SimpleVersionedSerializer<Object>> serializers) {
+    public HybridSourceSplitSerializer(List<SimpleVersionedSerializer<SourceSplit>> serializers) {
         this.serializers = serializers;
     }
 
     @Override
     public int getVersion() {
-        return CURRENT_VERSION;
+        return 0;
     }
 
     @Override
-    public byte[] serialize(HybridSourceEnumState enumState) throws IOException {
+    public byte[] serialize(HybridSourceSplit split) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 DataOutputStream out = new DataOutputStream(baos)) {
-            out.writeInt(enumState.getCurrentSourceIndex());
-            SimpleVersionedSerializer<Object> serializer =
-                    serializerOf(enumState.getCurrentSourceIndex());
-            out.writeInt(serializer.getVersion());
-            byte[] enumStateBytes = serializer.serialize(enumState.getWrappedState());
-            out.writeInt(enumStateBytes.length);
-            out.write(enumStateBytes);
+            out.writeInt(split.sourceIndex());
+            out.writeInt(serializerOf(split.sourceIndex()).getVersion());
+            byte[] serializedSplit =
+                    serializerOf(split.sourceIndex()).serialize(split.getWrappedSplit());
+            out.writeInt(serializedSplit.length);
+            out.write(serializedSplit);
             return baos.toByteArray();
         }
     }
 
     @Override
-    public HybridSourceEnumState deserialize(int version, byte[] serialized) throws IOException {
-        if (version != 0) {
-            throw new IOException(
-                    String.format(
-                            "The bytes are serialized with version %d, "
-                                    + "while this deserializer only supports version up to %d",
-                            version, CURRENT_VERSION));
-        }
+    public HybridSourceSplit deserialize(int version, byte[] serialized) throws IOException {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
                 DataInputStream in = new DataInputStream(bais)) {
             int sourceIndex = in.readInt();
             int nestedVersion = in.readInt();
             int length = in.readInt();
-            byte[] nestedBytes = new byte[length];
-            in.readFully(nestedBytes);
-            Object nested = serializerOf(sourceIndex).deserialize(nestedVersion, nestedBytes);
-            return new HybridSourceEnumState(sourceIndex, nested);
+            byte[] splitBytes = new byte[length];
+            in.readFully(splitBytes);
+            SourceSplit split = serializerOf(sourceIndex).deserialize(nestedVersion, splitBytes);
+            return new HybridSourceSplit(sourceIndex, split);
         }
     }
 
-    private SimpleVersionedSerializer<Object> serializerOf(int sourceIndex) {
+    private SimpleVersionedSerializer<SourceSplit> serializerOf(int sourceIndex) {
         Preconditions.checkArgument(sourceIndex < serializers.size());
         return serializers.get(sourceIndex);
     }
