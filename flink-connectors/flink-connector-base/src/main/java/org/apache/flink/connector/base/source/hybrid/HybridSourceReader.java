@@ -43,19 +43,19 @@ import java.util.concurrent.CompletableFuture;
  * <p>When the underlying reader has consumed all input, {@link HybridSourceReader} sends {@link
  * SourceReaderFinishedEvent} to the coordinator and waits for the {@link SwitchSourceEvent}.
  */
-public class HybridSourceReader<T, SplitT extends SourceSplit>
-        implements SourceReader<T, HybridSourceSplit<SplitT>> {
+public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<?>> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
     private static final int SOURCE_READER_FINISHED_EVENT_DELAY = 250;
     private SourceReaderContext readerContext;
-    private List<SourceReader<T, SplitT>> realReaders;
+    private List<SourceReader<T, ? extends SourceSplit>> realReaders;
     private int currentSourceIndex = -1;
     private long lastCheckpointId = -1;
-    private SourceReader<?, SplitT> currentReader;
+    private SourceReader<T, ? extends SourceSplit> currentReader;
     private long lastReaderFinishedMs;
 
     public HybridSourceReader(
-            SourceReaderContext readerContext, List<SourceReader<T, SplitT>> readers) {
+            SourceReaderContext readerContext,
+            List<SourceReader<T, ? extends SourceSplit>> readers) {
         this.readerContext = readerContext;
         this.realReaders = readers;
     }
@@ -95,16 +95,16 @@ public class HybridSourceReader<T, SplitT extends SourceSplit>
     }
 
     @Override
-    public List<HybridSourceSplit<SplitT>> snapshotState(long checkpointId) {
+    public List<HybridSourceSplit<?>> snapshotState(long checkpointId) {
         this.lastCheckpointId = checkpointId;
-        List<SplitT> state = currentReader.snapshotState(checkpointId);
+        List<? extends SourceSplit> state = currentReader.snapshotState(checkpointId);
         return wrappedSplits(currentSourceIndex, state);
     }
 
-    public static <SplitT extends SourceSplit> List<HybridSourceSplit<SplitT>> wrappedSplits(
-            int readerIndex, List<SplitT> state) {
-        List<HybridSourceSplit<SplitT>> wrappedSplits = new ArrayList<>(state.size());
-        for (SplitT split : state) {
+    public static List<HybridSourceSplit<?>> wrappedSplits(
+            int readerIndex, List<? extends SourceSplit> state) {
+        List<HybridSourceSplit<?>> wrappedSplits = new ArrayList<>(state.size());
+        for (SourceSplit split : state) {
             wrappedSplits.add(new HybridSourceSplit<>(readerIndex, split));
         }
         return wrappedSplits;
@@ -125,23 +125,23 @@ public class HybridSourceReader<T, SplitT extends SourceSplit>
     }
 
     @Override
-    public void addSplits(List<HybridSourceSplit<SplitT>> splits) {
+    public void addSplits(List<HybridSourceSplit<?>> splits) {
         LOG.info(
-                "### Adding splits subtask={} sourceIndex={} {} {}",
+                "Adding splits subtask={} sourceIndex={} {} {}",
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 currentReader,
                 splits);
-        List<SplitT> realSplits = new ArrayList<>(splits.size());
-        for (HybridSourceSplit split : splits) {
+        List<SourceSplit> realSplits = new ArrayList<>(splits.size());
+        for (HybridSourceSplit<?> split : splits) {
             Preconditions.checkState(
                     split.sourceIndex() == currentSourceIndex,
                     "Split %s while current source is %s",
                     split,
                     currentSourceIndex);
-            realSplits.add((SplitT) split.getWrappedSplit());
+            realSplits.add(split.getWrappedSplit());
         }
-        currentReader.addSplits(realSplits);
+        currentReader.addSplits((List) realSplits);
     }
 
     @Override
@@ -201,7 +201,7 @@ public class HybridSourceReader<T, SplitT extends SourceSplit>
                     currentSourceIndex,
                     currentReader);
         }
-        SourceReader<?, SplitT> reader = realReaders.get(index);
+        SourceReader<T, ?> reader = realReaders.get(index);
         reader.start();
         currentSourceIndex = index;
         currentReader = reader;

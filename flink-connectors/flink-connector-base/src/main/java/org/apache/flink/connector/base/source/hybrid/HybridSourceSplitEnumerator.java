@@ -310,15 +310,15 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
         private static final Logger LOG =
                 LoggerFactory.getLogger(SplitEnumeratorContextProxy.class);
 
-        private final SplitEnumeratorContext<HybridSourceSplit<SplitT>> realContext;
+        private final SplitEnumeratorContext<HybridSourceSplit<?>> realContext;
         private final int sourceIndex;
         // TODO: SourceCoordinatorContext does not provide access to current assignments
-        private final Map<Integer, List<HybridSourceSplit<SplitT>>> assignments;
+        private final Map<Integer, List<HybridSourceSplit<?>>> assignments;
 
         public SplitEnumeratorContextProxy(
                 int sourceIndex,
-                SplitEnumeratorContext<HybridSourceSplit<SplitT>> realContext,
-                Map<Integer, List<HybridSourceSplit<SplitT>>> assignments) {
+                SplitEnumeratorContext<HybridSourceSplit<?>> realContext,
+                Map<Integer, List<HybridSourceSplit<?>>> assignments) {
             this.realContext = realContext;
             this.sourceIndex = sourceIndex;
             this.assignments = assignments;
@@ -346,9 +346,9 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
 
         @Override
         public void assignSplits(SplitsAssignment<SplitT> newSplitAssignments) {
-            Map<Integer, List<HybridSourceSplit<SplitT>>> wrappedAssignmentMap = new HashMap<>();
+            Map<Integer, List<HybridSourceSplit<?>>> wrappedAssignmentMap = new HashMap<>();
             for (Map.Entry<Integer, List<SplitT>> e : newSplitAssignments.assignment().entrySet()) {
-                List<HybridSourceSplit<SplitT>> splits =
+                List<HybridSourceSplit<?>> splits =
                         HybridSourceReader.wrappedSplits(sourceIndex, e.getValue());
                 wrappedAssignmentMap.put(e.getKey(), splits);
                 assignments.merge(
@@ -359,7 +359,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
                             return all;
                         });
             }
-            SplitsAssignment<HybridSourceSplit<SplitT>> wrappedAssignments =
+            SplitsAssignment<HybridSourceSplit<?>> wrappedAssignments =
                     new SplitsAssignment<>(wrappedAssignmentMap);
             LOG.debug("Assigning splits sourceIndex={} {}", sourceIndex, wrappedAssignments);
             realContext.assignSplits(wrappedAssignments);
