@@ -19,11 +19,11 @@
 package org.apache.flink.connector.base.source.hybrid;
 
 /** The state of hybrid source enumerator. */
-public class HybridSourceEnumState {
+public class HybridSourceEnumeratorState {
     private final int currentSourceIndex;
     private final Object wrappedState;
 
-    HybridSourceEnumState(int currentSourceIndex, Object wrappedState) {
+    HybridSourceEnumeratorState(int currentSourceIndex, Object wrappedState) {
         this.currentSourceIndex = currentSourceIndex;
         this.wrappedState = wrappedState;
     }

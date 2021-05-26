@@ -63,7 +63,7 @@ import java.util.function.BiConsumer;
  * original assignment before resuming with the current underlying enumerator.
  */
 public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
-        implements SplitEnumerator<HybridSourceSplit<SplitT>, HybridSourceEnumState> {
+        implements SplitEnumerator<HybridSourceSplit<SplitT>, HybridSourceEnumeratorState> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceSplitEnumerator.class);
 
     private final SplitEnumeratorContext<HybridSourceSplit> context;
@@ -173,9 +173,9 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
     }
 
     @Override
-    public HybridSourceEnumState snapshotState(long checkpointId) throws Exception {
+    public HybridSourceEnumeratorState snapshotState(long checkpointId) throws Exception {
         Object enumState = currentEnumerator.snapshotState(checkpointId);
-        return new HybridSourceEnumState(currentSourceIndex, enumState);
+        return new HybridSourceEnumeratorState(currentSourceIndex, enumState);
     }
 
     @Override

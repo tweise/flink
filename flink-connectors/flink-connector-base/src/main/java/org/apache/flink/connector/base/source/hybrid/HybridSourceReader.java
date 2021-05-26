@@ -46,19 +46,16 @@ import java.util.concurrent.CompletableFuture;
 public class HybridSourceReader<T, SplitT extends SourceSplit>
         implements SourceReader<T, HybridSourceSplit<SplitT>> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
-    // Controls the interval at which to indicate to the coordinator that the current reader
-    // has consumed all input and the next source can be activated. This is necessary to not flood
-    // the coordinator with duplicate events.
     private static final int SOURCE_READER_FINISHED_EVENT_DELAY = 250;
     private SourceReaderContext readerContext;
-    private List<SourceReader<?, SplitT>> realReaders;
+    private List<SourceReader<T, SplitT>> realReaders;
     private int currentSourceIndex = -1;
     private long lastCheckpointId = -1;
     private SourceReader<?, SplitT> currentReader;
     private long lastReaderFinishedMs;
 
     public HybridSourceReader(
-            SourceReaderContext readerContext, List<SourceReader<?, SplitT>> readers) {
+            SourceReaderContext readerContext, List<SourceReader<T, SplitT>> readers) {
         this.readerContext = readerContext;
         this.realReaders = readers;
     }
@@ -79,7 +76,11 @@ public class HybridSourceReader<T, SplitT extends SourceSplit>
                     currentSourceIndex,
                     currentReader);
             if (currentSourceIndex + 1 < realReaders.size()) {
-                // signal coordinator to advance readers
+                // Signal the coordinator that the current reader has consumed all input and the
+                // next source can potentially be activated (after all readers are ready).
+                // Due to InputStatus.MORE_AVAILABLE this results in a tight loop until the
+                // enumerator instructs the readers to advance. Avoid flooding coordinator with
+                // finished events until then.
                 long currentMillis = System.currentTimeMillis();
                 if (lastReaderFinishedMs + SOURCE_READER_FINISHED_EVENT_DELAY < currentMillis) {
                     lastReaderFinishedMs = currentMillis;

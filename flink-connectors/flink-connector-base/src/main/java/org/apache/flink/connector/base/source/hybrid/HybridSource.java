@@ -30,20 +30,15 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.util.Preconditions;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 
-/** Hybrid source that switches underlying sources based on configurable source chain. */
+/** Hybrid source that switches underlying sources based on configured source chain. */
 @PublicEvolving
-public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourceEnumState> {
+public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourceEnumeratorState> {
 
     private final SourceChain<T, ? extends SourceSplit, ?> sourceChain;
 
@@ -65,7 +60,7 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     @Override
     public SourceReader<T, HybridSourceSplit> createReader(SourceReaderContext readerContext)
             throws Exception {
-        List<SourceReader<?, ? extends SourceSplit>> readers = new ArrayList<>();
+        List<SourceReader<T, ? extends SourceSplit>> readers = new ArrayList<>();
         for (Tuple2<Source<T, ? extends SourceSplit, ?>, ?> source : sourceChain.sources) {
             readers.add(source.f0.createReader(readerContext));
         }
@@ -73,14 +68,15 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     }
 
     @Override
-    public SplitEnumerator<HybridSourceSplit, HybridSourceEnumState> createEnumerator(
+    public SplitEnumerator<HybridSourceSplit, HybridSourceEnumeratorState> createEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> enumContext) {
         return new HybridSourceSplitEnumerator(enumContext, sourceChain);
     }
 
     @Override
-    public SplitEnumerator<HybridSourceSplit, HybridSourceEnumState> restoreEnumerator(
-            SplitEnumeratorContext<HybridSourceSplit> enumContext, HybridSourceEnumState checkpoint)
+    public SplitEnumerator<HybridSourceSplit, HybridSourceEnumeratorState> restoreEnumerator(
+            SplitEnumeratorContext<HybridSourceSplit> enumContext,
+            HybridSourceEnumeratorState checkpoint)
             throws Exception {
         return new HybridSourceSplitEnumerator(
                 enumContext, sourceChain, checkpoint.getCurrentSourceIndex());
@@ -91,15 +87,16 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
         List<SimpleVersionedSerializer<SourceSplit>> serializers = new ArrayList<>();
         sourceChain.sources.forEach(
                 t -> serializers.add(castSerializer(t.f0.getSplitSerializer())));
-        return new SplitSerializerWrapper<>(serializers);
+        return new HybridSourceSplitSerializer(serializers);
     }
 
     @Override
-    public SimpleVersionedSerializer<HybridSourceEnumState> getEnumeratorCheckpointSerializer() {
+    public SimpleVersionedSerializer<HybridSourceEnumeratorState>
+            getEnumeratorCheckpointSerializer() {
         List<SimpleVersionedSerializer<Object>> serializers = new ArrayList<>();
         sourceChain.sources.forEach(
                 t -> serializers.add(castSerializer(t.f0.getEnumeratorCheckpointSerializer())));
-        return new HybridSourceEnumStateSerializer(serializers);
+        return new HybridSourceEnumeratorStateSerializer(serializers);
     }
 
     private static <T> SimpleVersionedSerializer<T> castSerializer(
@@ -107,56 +104,6 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
         @SuppressWarnings("rawtypes")
         SimpleVersionedSerializer s1 = s;
         return s1;
-    }
-
-    /** Serializes splits by delegating to the source-indexed split serializer. */
-    public static class SplitSerializerWrapper<SplitT extends SourceSplit>
-            implements SimpleVersionedSerializer<HybridSourceSplit> {
-
-        final List<SimpleVersionedSerializer<SourceSplit>> serializers;
-
-        public SplitSerializerWrapper(List<SimpleVersionedSerializer<SourceSplit>> serializers) {
-            this.serializers = serializers;
-        }
-
-        @Override
-        public int getVersion() {
-            return 0;
-        }
-
-        @Override
-        public byte[] serialize(HybridSourceSplit split) throws IOException {
-            try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    DataOutputStream out = new DataOutputStream(baos)) {
-                out.writeInt(split.sourceIndex());
-                out.writeInt(serializerOf(split.sourceIndex()).getVersion());
-                byte[] serializedSplit =
-                        serializerOf(split.sourceIndex()).serialize(split.getWrappedSplit());
-                out.writeInt(serializedSplit.length);
-                out.write(serializedSplit);
-                return baos.toByteArray();
-            }
-        }
-
-        @Override
-        public HybridSourceSplit deserialize(int version, byte[] serialized) throws IOException {
-            try (ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
-                    DataInputStream in = new DataInputStream(bais)) {
-                int sourceIndex = in.readInt();
-                int nestedVersion = in.readInt();
-                int length = in.readInt();
-                byte[] splitBytes = new byte[length];
-                in.readFully(splitBytes);
-                SourceSplit split =
-                        serializerOf(sourceIndex).deserialize(nestedVersion, splitBytes);
-                return new HybridSourceSplit(sourceIndex, split);
-            }
-        }
-
-        private SimpleVersionedSerializer<SourceSplit> serializerOf(int sourceIndex) {
-            Preconditions.checkArgument(sourceIndex < serializers.size());
-            return serializers.get(sourceIndex);
-        }
     }
 
     /**
