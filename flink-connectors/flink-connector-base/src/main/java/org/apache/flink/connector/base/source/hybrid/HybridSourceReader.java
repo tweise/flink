@@ -45,13 +45,13 @@ import java.util.concurrent.CompletableFuture;
  */
 public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<?>> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
-    private static final int SOURCE_READER_FINISHED_EVENT_DELAY = 250;
     private SourceReaderContext readerContext;
     private List<SourceReader<T, ? extends SourceSplit>> realReaders;
     private int currentSourceIndex = -1;
     private long lastCheckpointId = -1;
     private SourceReader<T, ? extends SourceSplit> currentReader;
-    private long lastReaderFinishedMs;
+    // track last availability to resume reader after source switch
+    private CompletableFuture<Void> availabilityFuture;
 
     public HybridSourceReader(
             SourceReaderContext readerContext,
@@ -78,17 +78,12 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
             if (currentSourceIndex + 1 < realReaders.size()) {
                 // Signal the coordinator that the current reader has consumed all input and the
                 // next source can potentially be activated (after all readers are ready).
-                // Due to InputStatus.MORE_AVAILABLE this results in a tight loop until the
-                // enumerator instructs the readers to advance. Avoid flooding coordinator with
-                // finished events until then.
-                long currentMillis = System.currentTimeMillis();
-                if (lastReaderFinishedMs + SOURCE_READER_FINISHED_EVENT_DELAY < currentMillis) {
-                    lastReaderFinishedMs = currentMillis;
-                    readerContext.sendSourceEventToCoordinator(
-                            new SourceReaderFinishedEvent(currentSourceIndex, lastCheckpointId));
-                }
-                // more data will be available from the next reader
-                return InputStatus.MORE_AVAILABLE;
+                readerContext.sendSourceEventToCoordinator(
+                        new SourceReaderFinishedEvent(currentSourceIndex, lastCheckpointId));
+                // More data will be available from the next reader.
+                // InputStatus.NOTHING_AVAILABLE requires us to complete the availability
+                // future after source switch to resume poll.
+                return InputStatus.NOTHING_AVAILABLE;
             }
         }
         return status;
@@ -121,7 +116,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
 
     @Override
     public CompletableFuture<Void> isAvailable() {
-        return currentReader.isAvailable();
+        return availabilityFuture = currentReader.isAvailable();
     }
 
     @Override
@@ -163,6 +158,10 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
                     readerContext.getIndexOfSubtask(),
                     sse.sourceIndex());
             setCurrentReader(sse.sourceIndex());
+            if (availabilityFuture != null && !availabilityFuture.isDone()) {
+                // continue polling
+                availabilityFuture.complete(null);
+            }
         } else {
             currentReader.handleSourceEvents(sourceEvent);
         }
