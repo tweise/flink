@@ -237,7 +237,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
                     subtaskId,
                     assignments);
             if (this.assignments.isEmpty()) {
-                LOG.debug("No assignments remaining, ready to switch source readers!");
+                LOG.debug("No assignments remaining, ready to switch readers!");
                 if (currentSourceIndex + 1 < sourceChain.sources.size()) {
                     switchEnumerator();
                     // switch all readers prior to sending split assignments
