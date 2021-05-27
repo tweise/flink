@@ -54,7 +54,12 @@ import static org.junit.Assert.assertThat;
 /** MiniCluster-based integration test for the {@link HybridSource}. */
 public class HybridSourceITCase extends TestLogger {
 
-    private static final int PARALLELISM = 4;
+    // Parallelism cannot exceed number of splits, otherwise test may fail with:
+    // Caused by: org.apache.flink.util.FlinkException: An OperatorEvent from an
+    // OperatorCoordinator to a task was lost. Triggering task failover to ensure consistency.
+    // Event: '[NoMoreSplitEvent]', targetTask: Source: hybrid-source -> Map (1/4) - execution
+    // #3
+    private static final int PARALLELISM = 2;
 
     @Rule
     public final MiniClusterWithClientResource miniClusterResource =
@@ -141,9 +146,7 @@ public class HybridSourceITCase extends TestLogger {
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(PARALLELISM);
-        // increased restart attempts for occasional loss of coordinator event or collect sink error
-        // after inducing failure
-        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3, 0));
+        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 
         final DataStream<Integer> stream =
                 env.fromSource(source, WatermarkStrategy.noWatermarks(), "hybrid-source")

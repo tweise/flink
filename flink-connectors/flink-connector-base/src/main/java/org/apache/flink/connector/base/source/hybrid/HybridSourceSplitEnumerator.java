@@ -161,6 +161,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
             int sourceIndex = splitsBySource.firstKey();
             List<HybridSourceSplit<SplitT>> splits =
                     Preconditions.checkNotNull(splitsBySource.get(sourceIndex));
+            Preconditions.checkState(!splits.isEmpty());
             LOG.debug("Assigning pending splits subtask={} {}", subtaskId, splits);
             context.sendEventToSourceReader(subtaskId, new SwitchSourceEvent(sourceIndex));
             context.assignSplits(
