@@ -127,7 +127,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
                 (k, splitsPerSource) -> {
                     if (k == currentSourceIndex) {
                         currentEnumerator.addSplitsBack(
-                                HybridSourceReader.unwrappedSplits(splitsPerSource), subtaskId);
+                                HybridSourceReader.unwrapSplits(splitsPerSource), subtaskId);
                     } else {
                         pendingSplits
                                 .computeIfAbsent(subtaskId, sourceIndex -> new TreeMap<>())
@@ -350,7 +350,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
             Map<Integer, List<HybridSourceSplit<?>>> wrappedAssignmentMap = new HashMap<>();
             for (Map.Entry<Integer, List<SplitT>> e : newSplitAssignments.assignment().entrySet()) {
                 List<HybridSourceSplit<?>> splits =
-                        HybridSourceReader.wrappedSplits(sourceIndex, e.getValue());
+                        HybridSourceReader.wrapSplits(sourceIndex, e.getValue());
                 wrappedAssignmentMap.put(e.getKey(), splits);
                 assignments.merge(
                         e.getKey(),

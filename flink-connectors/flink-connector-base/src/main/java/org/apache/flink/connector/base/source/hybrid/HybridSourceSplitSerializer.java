@@ -61,12 +61,12 @@ public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<Hy
     @Override
     public HybridSourceSplit deserialize(int version, byte[] serialized) throws IOException {
         if (version == 0) {
-            return deserializeV0(version, serialized);
+            return deserializeV0(serialized);
         }
         throw new AssertionError(String.format("Invalid version %d", version));
     }
 
-    private HybridSourceSplit deserializeV0(int version, byte[] serialized) throws IOException {
+    private HybridSourceSplit deserializeV0(byte[] serialized) throws IOException {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
                 DataInputStream in = new DataInputStream(bais)) {
             int sourceIndex = in.readInt();
