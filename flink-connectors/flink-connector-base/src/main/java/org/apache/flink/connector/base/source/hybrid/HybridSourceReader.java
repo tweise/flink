@@ -50,7 +50,6 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     private int currentSourceIndex = -1;
     private long lastCheckpointId = -1;
     private SourceReader<T, ? extends SourceSplit> currentReader;
-    // track last availability to resume reader after source switch
     private CompletableFuture<Void> availabilityFuture;
 
     public HybridSourceReader(
@@ -93,10 +92,10 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     public List<HybridSourceSplit<?>> snapshotState(long checkpointId) {
         this.lastCheckpointId = checkpointId;
         List<? extends SourceSplit> state = currentReader.snapshotState(checkpointId);
-        return wrappedSplits(currentSourceIndex, state);
+        return wrapSplits(currentSourceIndex, state);
     }
 
-    public static List<HybridSourceSplit<?>> wrappedSplits(
+    public static List<HybridSourceSplit<?>> wrapSplits(
             int readerIndex, List<? extends SourceSplit> state) {
         List<HybridSourceSplit<?>> wrappedSplits = new ArrayList<>(state.size());
         for (SourceSplit split : state) {
@@ -105,7 +104,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
         return wrappedSplits;
     }
 
-    public static <SplitT extends SourceSplit> List<SplitT> unwrappedSplits(
+    public static <SplitT extends SourceSplit> List<SplitT> unwrapSplits(
             List<HybridSourceSplit<SplitT>> splits) {
         List<SplitT> unwrappedSplits = new ArrayList<>(splits.size());
         for (HybridSourceSplit<SplitT> split : splits) {
@@ -116,13 +115,14 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
 
     @Override
     public CompletableFuture<Void> isAvailable() {
+        // track future to resume reader after source switch
         return availabilityFuture = currentReader.isAvailable();
     }
 
     @Override
     public void addSplits(List<HybridSourceSplit<?>> splits) {
         LOG.info(
-                "Adding splits subtask={} sourceIndex={} {} {}",
+                "Adding splits subtask={} sourceIndex={} currentReader={} {}",
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 currentReader,
@@ -143,7 +143,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     public void notifyNoMoreSplits() {
         currentReader.notifyNoMoreSplits();
         LOG.debug(
-                "No more splits for reader subtask={} sourceIndex={} {}",
+                "No more splits for subtask={} sourceIndex={} currentReader={}",
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 currentReader);
@@ -153,7 +153,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     public void handleSourceEvents(SourceEvent sourceEvent) {
         if (sourceEvent instanceof SwitchSourceEvent) {
             SwitchSourceEvent sse = (SwitchSourceEvent) sourceEvent;
-            LOG.debug(
+            LOG.info(
                     "Switch source event: subtask={} sourceIndex={}",
                     readerContext.getIndexOfSubtask(),
                     sse.sourceIndex());
@@ -185,7 +185,8 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
             LOG.debug(
                     "Reader already set to process source: subtask={} sourceIndex={} {}",
                     readerContext.getIndexOfSubtask(),
-                    currentSourceIndex);
+                    currentSourceIndex,
+                    currentReader);
             return;
         }
         if (currentReader != null) {
