@@ -69,7 +69,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
         InputStatus status = currentReader.pollNext(output);
         if (status == InputStatus.END_OF_INPUT) {
             // trap END_OF_INPUT if this wasn't the final reader
-            LOG.debug(
+            LOG.info(
                     "End of input subtask={} sourceIndex={} {}",
                     readerContext.getIndexOfSubtask(),
                     currentSourceIndex,
