@@ -32,9 +32,10 @@ import java.util.List;
 /** Serializes splits by delegating to the source-indexed underlying split serializer. */
 public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<HybridSourceSplit> {
 
-    final List<SimpleVersionedSerializer<SourceSplit>> serializers;
+    final List<? extends SimpleVersionedSerializer<SourceSplit>> serializers;
 
-    public HybridSourceSplitSerializer(List<SimpleVersionedSerializer<SourceSplit>> serializers) {
+    public HybridSourceSplitSerializer(
+            List<? extends SimpleVersionedSerializer<SourceSplit>> serializers) {
         this.serializers = serializers;
     }
 
@@ -59,6 +60,13 @@ public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<Hy
 
     @Override
     public HybridSourceSplit deserialize(int version, byte[] serialized) throws IOException {
+        if (version == 0) {
+            return deserializeV0(version, serialized);
+        }
+        throw new AssertionError(String.format("Invalid version %d", version));
+    }
+
+    private HybridSourceSplit deserializeV0(int version, byte[] serialized) throws IOException {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
                 DataInputStream in = new DataInputStream(bais)) {
             int sourceIndex = in.readInt();

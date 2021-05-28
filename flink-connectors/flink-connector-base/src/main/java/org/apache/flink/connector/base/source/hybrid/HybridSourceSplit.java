@@ -20,6 +20,8 @@ package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.api.connector.source.SourceSplit;
 
+import java.util.Objects;
+
 /** Source split that wraps the actual split type. */
 public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSplit {
 
@@ -42,6 +44,23 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
     @Override
     public String splitId() {
         return realSplit.splitId();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        HybridSourceSplit<?> that = (HybridSourceSplit<?>) o;
+        return sourceIndex == that.sourceIndex && realSplit.equals(that.realSplit);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(realSplit, sourceIndex);
     }
 
     @Override
