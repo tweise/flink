@@ -123,6 +123,7 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
             this(concat(Collections.emptyList(), Tuple2.of(initialSource, null)));
         }
 
+        /** Construct a chain of homogeneous sources with fixed start position. */
         public static <T, SplitT extends SourceSplit, EnumChkT> SourceChain<T, SplitT, EnumChkT> of(
                 Source<T, SplitT, EnumChkT>... sources) {
             Preconditions.checkArgument(sources.length >= 1, "At least one source");
