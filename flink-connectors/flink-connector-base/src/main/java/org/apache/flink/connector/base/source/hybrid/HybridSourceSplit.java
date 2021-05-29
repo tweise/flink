@@ -25,12 +25,12 @@ import java.util.Objects;
 /** Source split that wraps the actual split type. */
 public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSplit {
 
-    private final SplitT realSplit;
+    private final SplitT wrappedSplit;
     private final int sourceIndex;
 
-    public HybridSourceSplit(int sourceIndex, SplitT realSplit) {
+    public HybridSourceSplit(int sourceIndex, SplitT wrappedSplit) {
         this.sourceIndex = sourceIndex;
-        this.realSplit = realSplit;
+        this.wrappedSplit = wrappedSplit;
     }
 
     public int sourceIndex() {
@@ -38,12 +38,12 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
     }
 
     public SplitT getWrappedSplit() {
-        return realSplit;
+        return wrappedSplit;
     }
 
     @Override
     public String splitId() {
-        return realSplit.splitId();
+        return wrappedSplit.splitId();
     }
 
     @Override
@@ -55,19 +55,19 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
             return false;
         }
         HybridSourceSplit<?> that = (HybridSourceSplit<?>) o;
-        return sourceIndex == that.sourceIndex && realSplit.equals(that.realSplit);
+        return sourceIndex == that.sourceIndex && wrappedSplit.equals(that.wrappedSplit);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(realSplit, sourceIndex);
+        return Objects.hash(wrappedSplit, sourceIndex);
     }
 
     @Override
     public String toString() {
         return "HybridSourceSplit{"
                 + "realSplit="
-                + realSplit
+                + wrappedSplit
                 + ", sourceIndex="
                 + sourceIndex
                 + '}';

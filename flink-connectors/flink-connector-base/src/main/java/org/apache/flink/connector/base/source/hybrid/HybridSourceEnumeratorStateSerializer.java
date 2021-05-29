@@ -64,13 +64,17 @@ public class HybridSourceEnumeratorStateSerializer
     @Override
     public HybridSourceEnumeratorState deserialize(int version, byte[] serialized)
             throws IOException {
-        if (version != 0) {
-            throw new IOException(
-                    String.format(
-                            "The bytes are serialized with version %d, "
-                                    + "while this deserializer only supports version up to %d",
-                            version, CURRENT_VERSION));
+        if (version == 0) {
+            return deserializeV0(serialized);
         }
+        throw new AssertionError(
+                String.format(
+                        "The bytes are serialized with version %d, "
+                                + "while this deserializer only supports version up to %d",
+                        version, CURRENT_VERSION));
+    }
+
+    private HybridSourceEnumeratorState deserializeV0(byte[] serialized) throws IOException {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
                 DataInputStream in = new DataInputStream(bais)) {
             int sourceIndex = in.readInt();
