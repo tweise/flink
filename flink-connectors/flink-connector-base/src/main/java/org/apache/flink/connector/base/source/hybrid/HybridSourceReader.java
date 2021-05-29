@@ -45,10 +45,9 @@ import java.util.concurrent.CompletableFuture;
  */
 public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<?>> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
-    private SourceReaderContext readerContext;
-    private List<SourceReader<T, ? extends SourceSplit>> realReaders;
+    private final SourceReaderContext readerContext;
+    private final List<SourceReader<T, ? extends SourceSplit>> chainedReaders;
     private int currentSourceIndex = -1;
-    private long lastCheckpointId = -1;
     private SourceReader<T, ? extends SourceSplit> currentReader;
     private CompletableFuture<Void> availabilityFuture;
 
@@ -56,7 +55,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
             SourceReaderContext readerContext,
             List<SourceReader<T, ? extends SourceSplit>> readers) {
         this.readerContext = readerContext;
-        this.realReaders = readers;
+        this.chainedReaders = readers;
     }
 
     @Override
@@ -74,11 +73,11 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
                     readerContext.getIndexOfSubtask(),
                     currentSourceIndex,
                     currentReader);
-            if (currentSourceIndex + 1 < realReaders.size()) {
+            if (currentSourceIndex + 1 < chainedReaders.size()) {
                 // Signal the coordinator that the current reader has consumed all input and the
                 // next source can potentially be activated (after all readers are ready).
                 readerContext.sendSourceEventToCoordinator(
-                        new SourceReaderFinishedEvent(currentSourceIndex, lastCheckpointId));
+                        new SourceReaderFinishedEvent(currentSourceIndex));
                 // More data will be available from the next reader.
                 // InputStatus.NOTHING_AVAILABLE requires us to complete the availability
                 // future after source switch to resume poll.
@@ -90,7 +89,6 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
 
     @Override
     public List<HybridSourceSplit<?>> snapshotState(long checkpointId) {
-        this.lastCheckpointId = checkpointId;
         List<? extends SourceSplit> state = currentReader.snapshotState(checkpointId);
         return wrapSplits(currentSourceIndex, state);
     }
@@ -171,7 +169,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     public void close() throws Exception {
         currentReader.close();
         LOG.debug(
-                "Reader closed: subtask={} sourceIndex={} {}",
+                "Reader closed: subtask={} sourceIndex={} currentReader={}",
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 currentReader);
@@ -180,10 +178,10 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     private void setCurrentReader(int index) {
         Preconditions.checkState(
                 currentSourceIndex <= index, "reader index monotonically increasing");
-        Preconditions.checkState(index < realReaders.size(), "invalid reader index: %s", index);
+        Preconditions.checkState(index < chainedReaders.size(), "invalid reader index: %s", index);
         if (currentSourceIndex == index) {
             LOG.debug(
-                    "Reader already set to process source: subtask={} sourceIndex={} {}",
+                    "Reader already set to process source: subtask={} sourceIndex={} currentReader={}",
                     readerContext.getIndexOfSubtask(),
                     currentSourceIndex,
                     currentReader);
@@ -201,7 +199,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
                     currentSourceIndex,
                     currentReader);
         }
-        SourceReader<T, ?> reader = realReaders.get(index);
+        SourceReader<T, ?> reader = chainedReaders.get(index);
         reader.start();
         currentSourceIndex = index;
         currentReader = reader;

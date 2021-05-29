@@ -28,33 +28,22 @@ public class SourceReaderFinishedEvent implements SourceEvent {
 
     private static final long serialVersionUID = 1L;
     private final int sourceIndex;
-    private final long checkpointId;
 
     /**
      * Constructor.
      *
      * @param sourceIndex
      */
-    public SourceReaderFinishedEvent(int sourceIndex, long checkpointId) {
+    public SourceReaderFinishedEvent(int sourceIndex) {
         this.sourceIndex = sourceIndex;
-        this.checkpointId = checkpointId;
     }
 
     public int sourceIndex() {
         return sourceIndex;
     }
 
-    public long getCheckpointId() {
-        return checkpointId;
-    }
-
     @Override
     public String toString() {
-        return "SourceReaderFinishedEvent{"
-                + "sourceIndex="
-                + sourceIndex
-                + ", checkpointId="
-                + checkpointId
-                + '}';
+        return "SourceReaderFinishedEvent{" + "sourceIndex=" + sourceIndex + '}';
     }
 }
