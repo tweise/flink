@@ -40,9 +40,9 @@ import java.util.function.Function;
 @PublicEvolving
 public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourceEnumeratorState> {
 
-    private final SourceChain<T, ? extends SourceSplit, ?> sourceChain;
+    private final SourceChain<T, ?> sourceChain;
 
-    public HybridSource(SourceChain<T, ? extends SourceSplit, ?> sourceChain) {
+    public HybridSource(SourceChain<T, ?> sourceChain) {
         Preconditions.checkArgument(!sourceChain.sources.isEmpty());
         for (int i = 0; i < sourceChain.sources.size() - 1; i++) {
             Preconditions.checkArgument(
@@ -115,19 +115,17 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
             extends Function<InCheckpointT, OutCheckpointT>, Serializable {}
 
     /** Chain of sources with option to convert start position at switch-time. */
-    public static class SourceChain<T, SplitT extends SourceSplit, EnumChkT>
-            implements Serializable {
+    public static class SourceChain<T, EnumChkT> implements Serializable {
         final List<Tuple2<Source<T, ? extends SourceSplit, ?>, CheckpointConverter<?, ?>>> sources;
 
-        public SourceChain(Source<T, SplitT, EnumChkT> initialSource) {
+        public SourceChain(Source<T, ?, EnumChkT> initialSource) {
             this(concat(Collections.emptyList(), Tuple2.of(initialSource, null)));
         }
 
         /** Construct a chain of homogeneous sources with fixed start position. */
-        public static <T, SplitT extends SourceSplit, EnumChkT> SourceChain<T, SplitT, EnumChkT> of(
-                Source<T, SplitT, EnumChkT>... sources) {
+        public static <T, EnumChkT> SourceChain<T, EnumChkT> of(Source<T, ?, EnumChkT>... sources) {
             Preconditions.checkArgument(sources.length >= 1, "At least one source");
-            SourceChain<T, SplitT, EnumChkT> sourceChain = new SourceChain<>(sources[0]);
+            SourceChain<T, EnumChkT> sourceChain = new SourceChain<>(sources[0]);
             for (int i = 1; i < sources.length; i++) {
                 sourceChain = sourceChain.add(sources[i]);
             }
@@ -141,17 +139,15 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
         }
 
         /** Add source with fixed start position. */
-        public <NextSplitT extends SourceSplit, NextEnumChkT>
-                SourceChain<T, NextSplitT, NextEnumChkT> add(
-                        Source<T, NextSplitT, NextEnumChkT> nextSource) {
+        public <NextEnumChkT> SourceChain<T, NextEnumChkT> add(
+                Source<T, ?, NextEnumChkT> nextSource) {
             return add(nextSource, null);
         }
 
         /** Add source with start position conversion from previous source. */
-        public <NextSplitT extends SourceSplit, NextEnumChkT>
-                SourceChain<T, NextSplitT, NextEnumChkT> add(
-                        Source<T, NextSplitT, NextEnumChkT> nextSource,
-                        CheckpointConverter<EnumChkT, NextEnumChkT> converter) {
+        public <NextEnumChkT> SourceChain<T, NextEnumChkT> add(
+                Source<T, ?, NextEnumChkT> nextSource,
+                CheckpointConverter<EnumChkT, NextEnumChkT> converter) {
             return new SourceChain<>(concat(this.sources, Tuple2.of(nextSource, converter)));
         }
 
