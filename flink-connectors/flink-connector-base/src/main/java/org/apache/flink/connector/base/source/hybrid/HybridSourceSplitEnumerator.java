@@ -58,9 +58,10 @@ import java.util.function.BiConsumer;
  * Source#restoreEnumerator(SplitEnumeratorContext, Object)}.
  *
  * <p>During subtask recovery, splits that have been assigned since the last checkpoint will be
- * added back by the source coordinator. This requires the enumerator to potentially suspend the
- * current enumerator, activate previous readers and process the split backlog following the
- * original assignment before resuming with the current underlying enumerator.
+ * added back by the source coordinator. These splits may originate from a previous enumerator that
+ * is no longer active. In that case {@link HybridSourceSplitEnumerator} will suspend forwarding to
+ * the current enumerator and replay the returned splits by activating the previous readers. After
+ * returned splits were processed, delegation to the current underlying enumerator resumes.
  */
 public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
         implements SplitEnumerator<HybridSourceSplit<SplitT>, HybridSourceEnumeratorState> {
@@ -70,6 +71,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
     private final HybridSource.SourceChain<?, Object> sourceChain;
     // TODO: SourceCoordinatorContext does not provide access to current assignments
     private final Map<Integer, List<HybridSourceSplit<SplitT>>> assignments;
+    // Splits that have been returned due to subtask reset
     private final Map<Integer, TreeMap<Integer, List<HybridSourceSplit<SplitT>>>> pendingSplits;
     private final HashSet<Integer> pendingReaders;
     private int currentSourceIndex;
