@@ -34,7 +34,7 @@ public class HybridSourceTest {
 
     @Test
     public void testBoundedness() {
-        HybridSource.SourceChain<Integer, MockSourceSplit, List<MockSourceSplit>> sourceChain;
+        HybridSource.SourceChain<Integer, List<MockSourceSplit>> sourceChain;
         sourceChain =
                 HybridSource.SourceChain.of(
                         new MockBaseSource(1, 1, Boundedness.BOUNDED),

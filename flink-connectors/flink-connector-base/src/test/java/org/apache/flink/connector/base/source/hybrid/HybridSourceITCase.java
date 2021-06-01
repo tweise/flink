@@ -102,7 +102,7 @@ public class HybridSourceITCase extends TestLogger {
     private Source sourceWithFixedSwitchPosition() {
         int numSplits = 2;
         int numRecordsPerSplit = EXPECTED_RESULT.size() / 4;
-        HybridSource.SourceChain<Integer, MockSourceSplit, List<MockSourceSplit>> sourceChain;
+        HybridSource.SourceChain<Integer, List<MockSourceSplit>> sourceChain;
         sourceChain =
                 HybridSource.SourceChain.of(
                         new MockBaseSource(numSplits, numRecordsPerSplit, Boundedness.BOUNDED),
@@ -111,7 +111,7 @@ public class HybridSourceITCase extends TestLogger {
     }
 
     private Source sourceWithDynamicSwitchPosition() {
-        HybridSource.SourceChain<Integer, MockSourceSplit, List<MockSourceSplit>> sourceChain;
+        HybridSource.SourceChain<Integer, List<MockSourceSplit>> sourceChain;
         sourceChain =
                 new HybridSource.SourceChain<>(new MockBaseSource(2, 10, Boundedness.BOUNDED));
         sourceChain =

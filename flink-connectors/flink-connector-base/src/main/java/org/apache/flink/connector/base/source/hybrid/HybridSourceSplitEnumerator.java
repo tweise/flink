@@ -67,7 +67,7 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceSplitEnumerator.class);
 
     private final SplitEnumeratorContext<HybridSourceSplit> context;
-    private final HybridSource.SourceChain<?, SplitT, Object> sourceChain;
+    private final HybridSource.SourceChain<?, Object> sourceChain;
     // TODO: SourceCoordinatorContext does not provide access to current assignments
     private final Map<Integer, List<HybridSourceSplit<SplitT>>> assignments;
     private final Map<Integer, TreeMap<Integer, List<HybridSourceSplit<SplitT>>>> pendingSplits;
@@ -77,13 +77,13 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
 
     public HybridSourceSplitEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> context,
-            HybridSource.SourceChain<?, SplitT, Object> sourceChain) {
+            HybridSource.SourceChain<?, Object> sourceChain) {
         this(context, sourceChain, 0);
     }
 
     public HybridSourceSplitEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> context,
-            HybridSource.SourceChain<?, SplitT, Object> sourceChain,
+            HybridSource.SourceChain<?, Object> sourceChain,
             int initialSourceIndex) {
         Preconditions.checkArgument(initialSourceIndex < sourceChain.sources.size());
         this.context = context;
