@@ -90,25 +90,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     @Override
     public List<HybridSourceSplit<?>> snapshotState(long checkpointId) {
         List<? extends SourceSplit> state = currentReader.snapshotState(checkpointId);
-        return wrapSplits(currentSourceIndex, state);
-    }
-
-    public static List<HybridSourceSplit<?>> wrapSplits(
-            int readerIndex, List<? extends SourceSplit> state) {
-        List<HybridSourceSplit<?>> wrappedSplits = new ArrayList<>(state.size());
-        for (SourceSplit split : state) {
-            wrappedSplits.add(new HybridSourceSplit<>(readerIndex, split));
-        }
-        return wrappedSplits;
-    }
-
-    public static <SplitT extends SourceSplit> List<SplitT> unwrapSplits(
-            List<HybridSourceSplit<SplitT>> splits) {
-        List<SplitT> unwrappedSplits = new ArrayList<>(splits.size());
-        for (HybridSourceSplit<SplitT> split : splits) {
-            unwrappedSplits.add(split.getWrappedSplit());
-        }
-        return unwrappedSplits;
+        return HybridSourceSplit.wrapSplits(currentSourceIndex, state);
     }
 
     @Override

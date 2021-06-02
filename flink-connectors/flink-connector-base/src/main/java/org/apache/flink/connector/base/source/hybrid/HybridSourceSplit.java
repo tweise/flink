@@ -20,6 +20,8 @@ package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.api.connector.source.SourceSplit;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /** Source split that wraps the actual split type. */
@@ -71,5 +73,23 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
                 + ", sourceIndex="
                 + sourceIndex
                 + '}';
+    }
+
+    public static List<HybridSourceSplit<?>> wrapSplits(
+            int readerIndex, List<? extends SourceSplit> state) {
+        List<HybridSourceSplit<?>> wrappedSplits = new ArrayList<>(state.size());
+        for (SourceSplit split : state) {
+            wrappedSplits.add(new HybridSourceSplit<>(readerIndex, split));
+        }
+        return wrappedSplits;
+    }
+
+    public static <SplitT extends SourceSplit> List<SplitT> unwrapSplits(
+            List<HybridSourceSplit<SplitT>> splits) {
+        List<SplitT> unwrappedSplits = new ArrayList<>(splits.size());
+        for (HybridSourceSplit<SplitT> split : splits) {
+            unwrappedSplits.add(split.getWrappedSplit());
+        }
+        return unwrappedSplits;
     }
 }
