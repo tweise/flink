@@ -54,7 +54,7 @@ import static org.junit.Assert.assertThat;
 /** MiniCluster-based integration test for the {@link HybridSource}. */
 public class HybridSourceITCase extends TestLogger {
 
-    // Parallelism cannot exceed number of splits, otherwise test may fail with:
+    // Parallelism cannot exceed number of splits, otherwise test may fail intermittently with:
     // Caused by: org.apache.flink.util.FlinkException: An OperatorEvent from an
     // OperatorCoordinator to a task was lost. Triggering task failover to ensure consistency.
     // Event: '[NoMoreSplitEvent]', targetTask: Source: hybrid-source -> Map (1/4) - execution
