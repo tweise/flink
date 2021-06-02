@@ -70,7 +70,7 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     @Override
     public SplitEnumerator<HybridSourceSplit, HybridSourceEnumeratorState> createEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> enumContext) {
-        return new HybridSourceSplitEnumerator(enumContext, sourceChain);
+        return new HybridSourceSplitEnumerator(enumContext, sourceChain, 0);
     }
 
     @Override

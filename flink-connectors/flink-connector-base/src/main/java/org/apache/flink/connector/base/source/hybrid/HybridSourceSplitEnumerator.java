@@ -63,29 +63,24 @@ import java.util.function.BiConsumer;
  * the current enumerator and replay the returned splits by activating the previous readers. After
  * returned splits were processed, delegation to the current underlying enumerator resumes.
  */
-public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
-        implements SplitEnumerator<HybridSourceSplit<SplitT>, HybridSourceEnumeratorState> {
+public class HybridSourceSplitEnumerator
+        implements SplitEnumerator<HybridSourceSplit, HybridSourceEnumeratorState> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceSplitEnumerator.class);
 
     private final SplitEnumeratorContext<HybridSourceSplit> context;
-    private final HybridSource.SourceChain<?, Object> sourceChain;
+    private final HybridSource.SourceChain<?, ?> sourceChain;
     // TODO: SourceCoordinatorContext does not provide access to current assignments
-    private final Map<Integer, List<HybridSourceSplit<SplitT>>> assignments;
+    private final Map<Integer, List<HybridSourceSplit<SourceSplit>>> assignments;
     // Splits that have been returned due to subtask reset
-    private final Map<Integer, TreeMap<Integer, List<HybridSourceSplit<SplitT>>>> pendingSplits;
+    private final Map<Integer, TreeMap<Integer, List<HybridSourceSplit<SourceSplit>>>>
+            pendingSplits;
     private final HashSet<Integer> pendingReaders;
     private int currentSourceIndex;
-    private SplitEnumerator<SplitT, Object> currentEnumerator;
+    private SplitEnumerator<SourceSplit, Object> currentEnumerator;
 
     public HybridSourceSplitEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> context,
-            HybridSource.SourceChain<?, Object> sourceChain) {
-        this(context, sourceChain, 0);
-    }
-
-    public HybridSourceSplitEnumerator(
-            SplitEnumeratorContext<HybridSourceSplit> context,
-            HybridSource.SourceChain<?, Object> sourceChain,
+            HybridSource.SourceChain<?, ?> sourceChain,
             int initialSourceIndex) {
         Preconditions.checkArgument(initialSourceIndex < sourceChain.sources.size());
         this.context = context;
@@ -114,12 +109,13 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
     }
 
     @Override
-    public void addSplitsBack(List<HybridSourceSplit<SplitT>> splits, int subtaskId) {
+    public void addSplitsBack(List<HybridSourceSplit> splits, int subtaskId) {
         LOG.debug("Adding splits back for subtask={} {}", subtaskId, splits);
         // Splits returned can belong to multiple sources, after switching since last checkpoint
-        TreeMap<Integer, List<HybridSourceSplit<SplitT>>> splitsBySourceIndex = new TreeMap<>();
+        TreeMap<Integer, List<HybridSourceSplit<SourceSplit>>> splitsBySourceIndex =
+                new TreeMap<>();
 
-        for (HybridSourceSplit<SplitT> split : splits) {
+        for (HybridSourceSplit<SourceSplit> split : splits) {
             splitsBySourceIndex
                     .computeIfAbsent(split.sourceIndex(), k -> new ArrayList<>())
                     .add(split);
@@ -157,11 +153,11 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
     }
 
     private void assignPendingSplits(int subtaskId) {
-        TreeMap<Integer, List<HybridSourceSplit<SplitT>>> splitsBySource =
+        TreeMap<Integer, List<HybridSourceSplit<SourceSplit>>> splitsBySource =
                 pendingSplits.get(subtaskId);
         if (splitsBySource != null) {
             int sourceIndex = splitsBySource.firstKey();
-            List<HybridSourceSplit<SplitT>> splits =
+            List<HybridSourceSplit<SourceSplit>> splits =
                     Preconditions.checkNotNull(splitsBySource.get(sourceIndex));
             Preconditions.checkState(!splits.isEmpty());
             LOG.debug("Assigning pending splits subtask={} {}", subtaskId, splits);
@@ -188,10 +184,10 @@ public class HybridSourceSplitEnumerator<SplitT extends SourceSplit>
             if (srfe.sourceIndex() != currentSourceIndex) {
                 if (srfe.sourceIndex() < currentSourceIndex) {
                     // Assign pending splits if any
-                    TreeMap<Integer, List<HybridSourceSplit<SplitT>>> splitsBySource =
+                    TreeMap<Integer, List<HybridSourceSplit<SourceSplit>>> splitsBySource =
                             pendingSplits.get(subtaskId);
                     if (splitsBySource != null) {
-                        List<HybridSourceSplit<SplitT>> splits =
+                        List<HybridSourceSplit<SourceSplit>> splits =
                                 splitsBySource.get(srfe.sourceIndex());
                         if (splits != null && splits.isEmpty()) {
                             // Splits have been processed by the reader
