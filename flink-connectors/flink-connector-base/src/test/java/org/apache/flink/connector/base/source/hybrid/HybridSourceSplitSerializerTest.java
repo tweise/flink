@@ -37,10 +37,9 @@ public class HybridSourceSplitSerializerTest {
                 (SimpleVersionedSerializer) new MockSourceSplitSerializer();
         HybridSourceSplitSerializer serializer =
                 new HybridSourceSplitSerializer(Collections.singletonList(mockSplitSerializer));
-        HybridSourceSplit<MockSourceSplit> split =
-                new HybridSourceSplit<>(0, new MockSourceSplit(1));
+        HybridSourceSplit split = new HybridSourceSplit(0, new MockSourceSplit(1));
         byte[] serialized = serializer.serialize(split);
-        HybridSourceSplit<MockSourceSplit> clonedSplit = serializer.deserialize(0, serialized);
+        HybridSourceSplit clonedSplit = serializer.deserialize(0, serialized);
         Assert.assertEquals(split, clonedSplit);
 
         try {

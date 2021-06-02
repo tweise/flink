@@ -25,12 +25,12 @@ import java.util.List;
 import java.util.Objects;
 
 /** Source split that wraps the actual split type. */
-public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSplit {
+public class HybridSourceSplit implements SourceSplit {
 
-    private final SplitT wrappedSplit;
+    private final SourceSplit wrappedSplit;
     private final int sourceIndex;
 
-    public HybridSourceSplit(int sourceIndex, SplitT wrappedSplit) {
+    public HybridSourceSplit(int sourceIndex, SourceSplit wrappedSplit) {
         this.sourceIndex = sourceIndex;
         this.wrappedSplit = wrappedSplit;
     }
@@ -39,7 +39,7 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
         return this.sourceIndex;
     }
 
-    public SplitT getWrappedSplit() {
+    public SourceSplit getWrappedSplit() {
         return wrappedSplit;
     }
 
@@ -56,7 +56,7 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        HybridSourceSplit<?> that = (HybridSourceSplit<?>) o;
+        HybridSourceSplit that = (HybridSourceSplit) o;
         return sourceIndex == that.sourceIndex && wrappedSplit.equals(that.wrappedSplit);
     }
 
@@ -75,19 +75,18 @@ public class HybridSourceSplit<SplitT extends SourceSplit> implements SourceSpli
                 + '}';
     }
 
-    public static List<HybridSourceSplit<?>> wrapSplits(
+    public static List<HybridSourceSplit> wrapSplits(
             int readerIndex, List<? extends SourceSplit> state) {
-        List<HybridSourceSplit<?>> wrappedSplits = new ArrayList<>(state.size());
+        List<HybridSourceSplit> wrappedSplits = new ArrayList<>(state.size());
         for (SourceSplit split : state) {
-            wrappedSplits.add(new HybridSourceSplit<>(readerIndex, split));
+            wrappedSplits.add(new HybridSourceSplit(readerIndex, split));
         }
         return wrappedSplits;
     }
 
-    public static <SplitT extends SourceSplit> List<SplitT> unwrapSplits(
-            List<HybridSourceSplit<SplitT>> splits) {
-        List<SplitT> unwrappedSplits = new ArrayList<>(splits.size());
-        for (HybridSourceSplit<SplitT> split : splits) {
+    public static List<SourceSplit> unwrapSplits(List<HybridSourceSplit> splits) {
+        List<SourceSplit> unwrappedSplits = new ArrayList<>(splits.size());
+        for (HybridSourceSplit split : splits) {
             unwrappedSplits.add(split.getWrappedSplit());
         }
         return unwrappedSplits;
