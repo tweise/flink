@@ -43,7 +43,7 @@ import java.util.concurrent.CompletableFuture;
  * <p>When the underlying reader has consumed all input, {@link HybridSourceReader} sends {@link
  * SourceReaderFinishedEvent} to the coordinator and waits for the {@link SwitchSourceEvent}.
  */
-public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<?>> {
+public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
     private final SourceReaderContext readerContext;
     private final List<SourceReader<T, ? extends SourceSplit>> chainedReaders;
@@ -88,7 +88,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     }
 
     @Override
-    public List<HybridSourceSplit<?>> snapshotState(long checkpointId) {
+    public List<HybridSourceSplit> snapshotState(long checkpointId) {
         List<? extends SourceSplit> state = currentReader.snapshotState(checkpointId);
         return HybridSourceSplit.wrapSplits(currentSourceIndex, state);
     }
@@ -100,7 +100,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
     }
 
     @Override
-    public void addSplits(List<HybridSourceSplit<?>> splits) {
+    public void addSplits(List<HybridSourceSplit> splits) {
         LOG.info(
                 "Adding splits subtask={} sourceIndex={} currentReader={} {}",
                 readerContext.getIndexOfSubtask(),
@@ -108,7 +108,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit<
                 currentReader,
                 splits);
         List<SourceSplit> realSplits = new ArrayList<>(splits.size());
-        for (HybridSourceSplit<?> split : splits) {
+        for (HybridSourceSplit split : splits) {
             Preconditions.checkState(
                     split.sourceIndex() == currentSourceIndex,
                     "Split %s while current source is %s",
