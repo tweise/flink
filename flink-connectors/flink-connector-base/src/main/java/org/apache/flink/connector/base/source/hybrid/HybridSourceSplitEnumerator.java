@@ -156,14 +156,15 @@ public class HybridSourceSplitEnumerator
             int sourceIndex = splitsBySource.firstKey();
             List<HybridSourceSplit> splits =
                     Preconditions.checkNotNull(splitsBySource.get(sourceIndex));
-            Preconditions.checkState(!splits.isEmpty());
-            LOG.debug("Assigning pending splits subtask={} {}", subtaskId, splits);
-            context.sendEventToSourceReader(subtaskId, new SwitchSourceEvent(sourceIndex));
-            context.assignSplits(
-                    new SplitsAssignment<>(Collections.singletonMap(subtaskId, splits)));
-            context.signalNoMoreSplits(subtaskId);
-            // Empty collection indicates that splits have been assigned
-            splits.clear();
+            if (!splits.isEmpty()) {
+                LOG.debug("Assigning pending splits subtask={} {}", subtaskId, splits);
+                context.sendEventToSourceReader(subtaskId, new SwitchSourceEvent(sourceIndex));
+                context.assignSplits(
+                        new SplitsAssignment<>(Collections.singletonMap(subtaskId, splits)));
+                context.signalNoMoreSplits(subtaskId);
+                // Empty collection indicates that splits have been assigned
+                splitsBySource.put(sourceIndex, Collections.emptyList());
+            }
         }
     }
 
