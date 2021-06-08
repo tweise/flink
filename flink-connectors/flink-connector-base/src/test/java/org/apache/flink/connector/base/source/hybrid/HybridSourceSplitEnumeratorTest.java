@@ -20,14 +20,18 @@ package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.ReaderInfo;
+import org.apache.flink.api.connector.source.SplitEnumerator;
 import org.apache.flink.api.connector.source.mocks.MockSourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.connector.base.source.reader.mocks.MockBaseSource;
+import org.apache.flink.connector.base.source.reader.mocks.MockSplitEnumerator;
 import org.apache.flink.mock.Whitebox;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -80,7 +84,7 @@ public class HybridSourceSplitEnumeratorTest {
     }
 
     @Test
-    public void testSwitchSourceAndReaderReset() {
+    public void testRegisterReaderAfterSwitchAndReaderReset() {
         setupEnumeratorAndTriggerSourceSwitch();
 
         // add split of previous source back (simulates reader reset during recovery)
@@ -107,8 +111,19 @@ public class HybridSourceSplitEnumeratorTest {
     }
 
     @Test
-    public void testHandleSplitRequestAfterRecovery() {
+    public void testHandleSplitRequestAfterSwitchAndReaderReset() {
         setupEnumeratorAndTriggerSourceSwitch();
+
+        UnderlyingEnumeratorWrapper underlyingEnumeratorWrapper =
+                new UnderlyingEnumeratorWrapper(
+                        (MockSplitEnumerator)
+                                Whitebox.getInternalState(enumerator, "currentEnumerator"));
+        Whitebox.setInternalState(enumerator, "currentEnumerator", underlyingEnumeratorWrapper);
+
+        List<MockSourceSplit> mockSourceSplits =
+                (List<MockSourceSplit>)
+                        Whitebox.getInternalState(underlyingEnumeratorWrapper.enumerator, "splits");
+        assertThat(mockSourceSplits, Matchers.emptyIterable());
 
         // remove reader to suppress auto-assignment behavior of mock source
         context.unregisterReader(SUBTASK0);
@@ -117,6 +132,7 @@ public class HybridSourceSplitEnumeratorTest {
         context.getSplitsAssignmentSequence().clear();
         enumerator.addSplitsBack(Collections.singletonList(splitFromSource0), SUBTASK0);
         enumerator.addSplitsBack(Collections.singletonList(splitFromSource1), SUBTASK0);
+        assertThat(mockSourceSplits, Matchers.contains(splitFromSource1.getWrappedSplit()));
         assertThat(
                 "addSplitsBack doesn't trigger assignment when reader not registered",
                 context.getSplitsAssignmentSequence(),
@@ -133,8 +149,9 @@ public class HybridSourceSplitEnumeratorTest {
 
         context.getSplitsAssignmentSequence().clear();
         enumerator.handleSplitRequest(SUBTASK0, "fakehostname");
+        assertThat(underlyingEnumeratorWrapper.handleSplitRequests, Matchers.emptyIterable());
         assertThat(
-                "addSplitsBack doesn't add more splits",
+                "handleSplitRequest doesn't assign splits",
                 context.getSplitsAssignmentSequence(),
                 Matchers.emptyIterable());
 
@@ -142,21 +159,67 @@ public class HybridSourceSplitEnumeratorTest {
         assertThat("pending readers", getPendingReaders(enumerator), Matchers.emptyIterable());
         registerReader(context, enumerator, SUBTASK0);
         assertThat("pending readers", getPendingReaders(enumerator), Matchers.contains(SUBTASK0));
+        assertThat(mockSourceSplits, Matchers.contains(splitFromSource1.getWrappedSplit()));
         assertThat(
                 "registerReader doesn't trigger split assignment",
                 context.getSplitsAssignmentSequence(),
                 Matchers.emptyIterable());
 
-        // add reader back to allow mock enumerator to assign splits
+        // finish from previous reader triggers switch to next reader
         enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(SUBTASK0));
-        // enumerator.handleSplitRequest(SUBTASK0, "fakehostname");
+
+        assertThat("pending readers", getPendingReaders(enumerator), Matchers.emptyIterable());
+        assertThat(mockSourceSplits, Matchers.emptyIterable());
         assertSplitAssignment(
                 "handleSplitRequest triggers assignment of split by underlying enumerator",
                 context,
                 1,
                 splitFromSource1,
                 SUBTASK0);
-        assertThat("pending readers", getPendingReaders(enumerator), Matchers.emptyIterable());
+
+        enumerator.handleSplitRequest(SUBTASK1, "fakehostname");
+        assertThat(underlyingEnumeratorWrapper.handleSplitRequests, Matchers.contains(SUBTASK1));
+    }
+
+    private static class UnderlyingEnumeratorWrapper
+            implements SplitEnumerator<MockSourceSplit, Object> {
+        private final List<Integer> handleSplitRequests = new ArrayList<>();
+        private final MockSplitEnumerator enumerator;
+
+        private UnderlyingEnumeratorWrapper(MockSplitEnumerator enumerator) {
+            this.enumerator = enumerator;
+        }
+
+        @Override
+        public void handleSplitRequest(int subtaskId, String requesterHostname) {
+            handleSplitRequests.add(subtaskId);
+            enumerator.handleSplitRequest(subtaskId, requesterHostname);
+        }
+
+        @Override
+        public void start() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addSplitsBack(List splits, int subtaskId) {
+            enumerator.addSplitsBack(splits, subtaskId);
+        }
+
+        @Override
+        public void addReader(int subtaskId) {
+            enumerator.addReader(subtaskId);
+        }
+
+        @Override
+        public Object snapshotState(long checkpointId) throws Exception {
+            return enumerator.snapshotState(checkpointId);
+        }
+
+        @Override
+        public void close() throws IOException {
+            enumerator.close();
+        }
     }
 
     private static void assertSplitAssignment(

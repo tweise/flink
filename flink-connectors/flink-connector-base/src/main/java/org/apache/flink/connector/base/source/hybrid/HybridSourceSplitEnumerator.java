@@ -102,9 +102,11 @@ public class HybridSourceSplitEnumerator
                 subtaskId,
                 currentSourceIndex,
                 pendingSplits);
-        // TODO: test coverage for on demand split assignment
-        assignPendingSplits(subtaskId);
-        currentEnumerator.handleSplitRequest(subtaskId, requesterHostname);
+        if (!pendingSplits.isEmpty() && pendingSplits.containsKey(subtaskId)) {
+            assignPendingSplits(subtaskId);
+        } else {
+            currentEnumerator.handleSplitRequest(subtaskId, requesterHostname);
+        }
     }
 
     @Override
