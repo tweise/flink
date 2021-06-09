@@ -68,7 +68,7 @@ public class HybridSourceSplitEnumerator
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceSplitEnumerator.class);
 
     private final SplitEnumeratorContext<HybridSourceSplit> context;
-    private final HybridSource.SourceChain<?, ?> sourceChain;
+    private final List<HybridSource.SourceListEntry> sources;
     // TODO: SourceCoordinatorContext does not provide access to current assignments
     private final Map<Integer, List<HybridSourceSplit>> assignments;
     // Splits that have been returned due to subtask reset
@@ -79,11 +79,11 @@ public class HybridSourceSplitEnumerator
 
     public HybridSourceSplitEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> context,
-            HybridSource.SourceChain<?, ?> sourceChain,
+            List<HybridSource.SourceListEntry> sources,
             int initialSourceIndex) {
-        Preconditions.checkArgument(initialSourceIndex < sourceChain.sources.size());
+        Preconditions.checkArgument(initialSourceIndex < sources.size());
         this.context = context;
-        this.sourceChain = sourceChain;
+        this.sources = sources;
         this.currentSourceIndex = initialSourceIndex;
         this.assignments = new HashMap<>();
         this.pendingSplits = new HashMap<>();
@@ -235,7 +235,7 @@ public class HybridSourceSplitEnumerator
                     assignments);
             if (this.assignments.isEmpty()) {
                 LOG.debug("No assignments remaining, ready to switch readers!");
-                if (currentSourceIndex + 1 < sourceChain.sources.size()) {
+                if (currentSourceIndex + 1 < sources.size()) {
                     switchEnumerator();
                     // switch all readers prior to sending split assignments
                     for (int i = 0; i < context.currentParallelism(); i++) {
@@ -262,10 +262,9 @@ public class HybridSourceSplitEnumerator
 
     private void switchEnumerator() {
 
-        Object enumeratorState = null;
+        SplitEnumerator<SourceSplit, Object> previousEnumerator = currentEnumerator;
         if (currentEnumerator != null) {
             try {
-                enumeratorState = currentEnumerator.snapshotState(-1);
                 currentEnumerator.close();
             } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -277,17 +276,14 @@ public class HybridSourceSplitEnumerator
         SplitEnumeratorContextProxy delegatingContext =
                 new SplitEnumeratorContextProxy(currentSourceIndex, context, assignments);
         Source<?, ? extends SourceSplit, Object> source =
-                (Source) sourceChain.sources.get(currentSourceIndex).f0;
-        HybridSource.CheckpointConverter<Object, Object> converter =
-                (HybridSource.CheckpointConverter) sourceChain.sources.get(currentSourceIndex).f1;
+                (Source) sources.get(currentSourceIndex).source;
+        HybridSource.SourceConfigurer<Source, SplitEnumerator<SourceSplit, Object>> configurer =
+                sources.get(currentSourceIndex).configurer;
+        if (configurer != null) {
+            source = configurer.configure(source, previousEnumerator);
+        }
         try {
-            if (converter != null) {
-                currentEnumerator =
-                        source.restoreEnumerator(
-                                delegatingContext, converter.apply(enumeratorState));
-            } else {
-                currentEnumerator = source.createEnumerator(delegatingContext);
-            }
+            currentEnumerator = source.createEnumerator(delegatingContext);
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create enumerator for sourceIndex=" + currentSourceIndex, e);

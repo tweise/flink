@@ -52,12 +52,12 @@ public class HybridSourceSplitEnumeratorTest {
 
     private void setupEnumeratorAndTriggerSourceSwitch() {
         context = new MockSplitEnumeratorContext<>(2);
-        HybridSource.SourceChain<Integer, List<MockSourceSplit>> sourceChain;
-        sourceChain =
-                HybridSource.SourceChain.of(
-                        new MockBaseSource(1, 1, Boundedness.BOUNDED),
-                        new MockBaseSource(1, 1, Boundedness.BOUNDED));
-        enumerator = new HybridSourceSplitEnumerator(context, sourceChain, 0);
+        HybridSource<Integer> source =
+                HybridSource.builder(new MockBaseSource(1, 1, Boundedness.BOUNDED))
+                        .addSource(new MockBaseSource(1, 1, Boundedness.BOUNDED))
+                        .build();
+
+        enumerator = (HybridSourceSplitEnumerator) source.createEnumerator(context);
         enumerator.start();
         // mock enumerator assigns splits once all readers are registered
         registerReader(context, enumerator, SUBTASK0);

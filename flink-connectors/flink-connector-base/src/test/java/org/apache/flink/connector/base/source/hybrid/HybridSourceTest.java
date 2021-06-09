@@ -19,12 +19,9 @@
 package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.api.connector.source.Boundedness;
-import org.apache.flink.api.connector.source.mocks.MockSourceSplit;
 import org.apache.flink.connector.base.source.reader.mocks.MockBaseSource;
 
 import org.junit.Test;
-
-import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
@@ -34,26 +31,24 @@ public class HybridSourceTest {
 
     @Test
     public void testBoundedness() {
-        HybridSource.SourceChain<Integer, List<MockSourceSplit>> sourceChain;
-        sourceChain =
-                HybridSource.SourceChain.of(
-                        new MockBaseSource(1, 1, Boundedness.BOUNDED),
-                        new MockBaseSource(1, 1, Boundedness.BOUNDED));
-        assertEquals(Boundedness.BOUNDED, new HybridSource<>(sourceChain).getBoundedness());
+        HybridSource<Integer> source;
 
-        sourceChain =
-                HybridSource.SourceChain.of(
-                        new MockBaseSource(1, 1, Boundedness.BOUNDED),
-                        new MockBaseSource(1, 1, Boundedness.CONTINUOUS_UNBOUNDED));
-        assertEquals(
-                Boundedness.CONTINUOUS_UNBOUNDED, new HybridSource<>(sourceChain).getBoundedness());
+        source =
+                HybridSource.builder(new MockBaseSource(1, 1, Boundedness.BOUNDED))
+                        .addSource(new MockBaseSource(1, 1, Boundedness.BOUNDED))
+                        .build();
+        assertEquals(Boundedness.BOUNDED, source.getBoundedness());
 
-        sourceChain =
-                HybridSource.SourceChain.of(
-                        new MockBaseSource(1, 1, Boundedness.CONTINUOUS_UNBOUNDED),
-                        new MockBaseSource(1, 1, Boundedness.CONTINUOUS_UNBOUNDED));
+        source =
+                HybridSource.builder(new MockBaseSource(1, 1, Boundedness.BOUNDED))
+                        .addSource(new MockBaseSource(1, 1, Boundedness.CONTINUOUS_UNBOUNDED))
+                        .build();
+        assertEquals(Boundedness.CONTINUOUS_UNBOUNDED, source.getBoundedness());
+
         try {
-            new HybridSource<>(sourceChain);
+            HybridSource.builder(new MockBaseSource(1, 1, Boundedness.CONTINUOUS_UNBOUNDED))
+                    .addSource(new MockBaseSource(1, 1, Boundedness.CONTINUOUS_UNBOUNDED))
+                    .build();
             fail("expected exception");
         } catch (IllegalArgumentException e) {
             // boundedness check to fail
