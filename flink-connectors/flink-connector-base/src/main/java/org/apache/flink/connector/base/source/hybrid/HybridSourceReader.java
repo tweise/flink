@@ -167,7 +167,9 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
 
     @Override
     public void close() throws Exception {
-        currentReader.close();
+        if (currentReader != null) {
+            currentReader.close();
+        }
         LOG.debug(
                 "Reader closed: subtask={} sourceIndex={} currentReader={}",
                 readerContext.getIndexOfSubtask(),

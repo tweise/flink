@@ -127,8 +127,13 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     }
 
     /**
-     * Callback for switch time customization of the underlying source from previous enumerator end
-     * state.
+     * Callback for switch time customization of the underlying source, typically to dynamically set
+     * a start position from previous enumerator end state.
+     *
+     * <p>Requires the ability to augment the existing source (or clone and modify). Provides the
+     * flexibility to set start position in any way a source allows, in a source specific way.
+     * Future convenience could be built on top of it, for example an implementation recognizes
+     * optional interfaces.
      *
      * <p>Called when the current enumerator has finished and before the next enumerator is created.
      * The enumerator end state can thus be used to set the next source's start start position.
