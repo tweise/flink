@@ -28,18 +28,24 @@ public class SwitchSourceEvent implements SourceEvent {
 
     private static final long serialVersionUID = 1L;
     private final int sourceIndex;
+    private final boolean finalSource;
 
     /**
      * Constructor.
      *
      * @param sourceIndex
      */
-    public SwitchSourceEvent(int sourceIndex) {
+    public SwitchSourceEvent(int sourceIndex, boolean finalSource) {
         this.sourceIndex = sourceIndex;
+        this.finalSource = finalSource;
     }
 
     public int sourceIndex() {
         return sourceIndex;
+    }
+
+    public boolean isFinalSource() {
+        return finalSource;
     }
 
     @Override
