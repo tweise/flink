@@ -42,7 +42,9 @@ import java.util.concurrent.CompletableFuture;
  * by the enumerator, which selects the active reader via {@link SwitchSourceEvent}.
  *
  * <p>When the underlying reader has consumed all input, {@link HybridSourceReader} sends {@link
- * SourceReaderFinishedEvent} to the coordinator and waits for the {@link SwitchSourceEvent}.
+ * SourceReaderFinishedEvent} to the coordinator.
+ *
+ * <p>The reader does not make assumptions about the order in which the sources are activated.
  */
 public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
@@ -50,6 +52,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
     private final List<SourceReader<T, ? extends SourceSplit>> chainedReaders;
     private final ArrayDeque<HybridSourceSplit> pendingSplits = new ArrayDeque<>();
     private int currentSourceIndex = -1;
+    private boolean isFinalSource;
     private SourceReader<T, ? extends SourceSplit> currentReader;
     private CompletableFuture<Void> availabilityFuture;
 
@@ -68,35 +71,25 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
     @Override
     public InputStatus pollNext(ReaderOutput output) throws Exception {
         if (currentReader == null) {
-            if (pendingSplits.isEmpty()) {
-                // no underlying reader before split assignment
-                return InputStatus.NOTHING_AVAILABLE;
-            } else {
-                setCurrentReader(pendingSplits.peek().sourceIndex());
-            }
+            return InputStatus.NOTHING_AVAILABLE;
         }
 
         InputStatus status = currentReader.pollNext(output);
         if (status == InputStatus.END_OF_INPUT) {
-            // trap END_OF_INPUT if this wasn't the final reader
+            // trap END_OF_INPUT unless all sources have finished
             LOG.info(
                     "End of input subtask={} sourceIndex={} {}",
                     readerContext.getIndexOfSubtask(),
                     currentSourceIndex,
                     currentReader);
-            if (currentSourceIndex + 1 < chainedReaders.size()) {
-                // Signal the coordinator that the current reader has consumed all input and the
-                // next source can potentially be activated (after all readers are ready).
-                readerContext.sendSourceEventToCoordinator(
-                        new SourceReaderFinishedEvent(currentSourceIndex));
-                if (!pendingSplits.isEmpty()) {
-                    // we have splits for another reader waiting
-                    setCurrentReader(pendingSplits.peek().sourceIndex());
-                    return InputStatus.MORE_AVAILABLE;
-                }
-                // More splits may arrive for this or subsequent reader.
-                // InputStatus.NOTHING_AVAILABLE requires us to complete the availability
-                // future after receiving more splits to resume poll.
+            // Signal the coordinator that this reader has consumed all input and the
+            // next source can potentially be activated.
+            readerContext.sendSourceEventToCoordinator(
+                    new SourceReaderFinishedEvent(currentSourceIndex));
+            if (!isFinalSource) {
+                // More splits may arrive for a subsequent reader.
+                // InputStatus.NOTHING_AVAILABLE suspends poll, requires completion of the
+                // availability future after receiving more splits to resume.
                 return InputStatus.NOTHING_AVAILABLE;
             }
         }
@@ -115,7 +108,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
         if (currentReader != null) {
             return availabilityFuture = currentReader.isAvailable();
         } else {
-            LOG.debug("Suspend pollNext due to no active reader");
+            LOG.debug("Suspending pollNext due to no underlying reader");
             return availabilityFuture = new CompletableFuture<>();
         }
     }
@@ -123,22 +116,28 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
     @Override
     public void addSplits(List<HybridSourceSplit> splits) {
         LOG.info(
-                "Receiving splits subtask={} sourceIndex={} currentReader={} {}",
+                "Adding splits subtask={} sourceIndex={} currentReader={} {}",
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 currentReader,
                 splits);
-        pendingSplits.addAll(splits);
-        if (availabilityFuture != null && !availabilityFuture.isDone()) {
-            // continue polling
-            LOG.debug("Resuming pollNext");
-            availabilityFuture.complete(null);
+        List<SourceSplit> realSplits = new ArrayList<>(splits.size());
+        for (HybridSourceSplit split : splits) {
+            Preconditions.checkState(
+                    split.sourceIndex() == currentSourceIndex,
+                    "Split %s while current source is %s",
+                    split,
+                    currentSourceIndex);
+            realSplits.add(split.getWrappedSplit());
         }
+        currentReader.addSplits((List) realSplits);
     }
 
     @Override
     public void notifyNoMoreSplits() {
-        currentReader.notifyNoMoreSplits();
+        if (currentReader != null) {
+            currentReader.notifyNoMoreSplits();
+        }
         LOG.debug(
                 "No more splits for subtask={} sourceIndex={} currentReader={}",
                 readerContext.getIndexOfSubtask(),
@@ -154,12 +153,12 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                     "Switch source event: subtask={} sourceIndex={}",
                     readerContext.getIndexOfSubtask(),
                     sse.sourceIndex());
-            // TODO: remove SwitchSourceEvent as reader switch is now driven by assigned splits
-            // setCurrentReader(sse.sourceIndex());
-            // if (availabilityFuture != null && !availabilityFuture.isDone()) {
-            //    // continue polling
-            //    availabilityFuture.complete(null);
-            // }
+            setCurrentReader(sse.sourceIndex());
+            isFinalSource = sse.isFinalSource();
+            if (availabilityFuture != null && !availabilityFuture.isDone()) {
+                // continue polling
+                availabilityFuture.complete(null);
+            }
         } else {
             currentReader.handleSourceEvents(sourceEvent);
         }
@@ -178,20 +177,10 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
     }
 
     private void setCurrentReader(int index) {
-        Preconditions.checkState(
-                currentSourceIndex <= index, "reader index monotonically increasing");
-        Preconditions.checkState(index < chainedReaders.size(), "invalid reader index: %s", index);
-        if (currentSourceIndex == index) {
-            LOG.debug(
-                    "Reader already set to process source: subtask={} sourceIndex={} currentReader={}",
-                    readerContext.getIndexOfSubtask(),
-                    currentSourceIndex,
-                    currentReader);
-            return;
-        }
+        Preconditions.checkArgument(index != currentSourceIndex);
         if (currentReader != null) {
             try {
-                // TODO: retain splits for reset
+                // TODO: retain snapshot splits for reset
                 currentReader.close();
             } catch (Exception e) {
                 throw new RuntimeException("Failed to close current reader", e);
@@ -211,24 +200,5 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 reader);
-
-        // assign waiting splits, if any
-        List<SourceSplit> splits = new ArrayList<>(pendingSplits.size());
-        HybridSourceSplit hybridSplit;
-        while ((hybridSplit = pendingSplits.peek()) != null) {
-            if (hybridSplit.sourceIndex() == currentSourceIndex) {
-                splits.add(pendingSplits.removeFirst().getWrappedSplit());
-            } else {
-                // no more splits for this reader
-                break;
-            }
-        }
-        LOG.info(
-                "Adding splits subtask={} sourceIndex={} currentReader={} {}",
-                readerContext.getIndexOfSubtask(),
-                currentSourceIndex,
-                currentReader,
-                splits);
-        currentReader.addSplits((List) splits);
     }
 }

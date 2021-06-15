@@ -51,11 +51,10 @@ import java.util.function.BiConsumer;
  * next source once all readers have indicated via {@link SourceReaderFinishedEvent} that all input
  * was consumed.
  *
- * <p>Switching between enumerators occurs by either creating the new enumerator with a fixed start
- * position via {@link Source#createEnumerator(SplitEnumeratorContext)} or by using the state of the
- * previous enumerator and the optional user supplied checkpoint state converter to create the next
- * enumerator with a runtime determined start position via {@link
- * Source#restoreEnumerator(SplitEnumeratorContext, Object)}.
+ * <p>Switching between enumerators occurs by creating the new enumerator via {@link
+ * Source#createEnumerator(SplitEnumeratorContext)}. The start position can be fixed at pipeline
+ * construction time through the source or supplied at switch time through a converter function by
+ * using the end state of the previous enumerator.
  *
  * <p>During subtask recovery, splits that have been assigned since the last checkpoint will be
  * added back by the source coordinator. These splits may originate from a previous enumerator that
@@ -141,7 +140,7 @@ public class HybridSourceSplitEnumerator
     public void addReader(int subtaskId) {
         LOG.debug("addReader subtaskId={}", subtaskId);
         if (pendingSplits.isEmpty()) {
-            context.sendEventToSourceReader(subtaskId, new SwitchSourceEvent(currentSourceIndex));
+            sendSwitchSourceEvent(subtaskId, currentSourceIndex);
             LOG.debug("Adding reader {} to enumerator {}", subtaskId, currentSourceIndex);
             currentEnumerator.addReader(subtaskId);
         } else {
@@ -152,6 +151,11 @@ public class HybridSourceSplitEnumerator
         }
     }
 
+    private void sendSwitchSourceEvent(int subtaskId, int sourceIndex) {
+        context.sendEventToSourceReader(
+                subtaskId, new SwitchSourceEvent(sourceIndex, sourceIndex >= (sources.size() - 1)));
+    }
+
     private void assignPendingSplits(int subtaskId) {
         TreeMap<Integer, List<HybridSourceSplit>> splitsBySource = pendingSplits.get(subtaskId);
         if (splitsBySource != null) {
@@ -160,7 +164,7 @@ public class HybridSourceSplitEnumerator
                     Preconditions.checkNotNull(splitsBySource.get(sourceIndex));
             if (!splits.isEmpty()) {
                 LOG.debug("Assigning pending splits subtask={} {}", subtaskId, splits);
-                context.sendEventToSourceReader(subtaskId, new SwitchSourceEvent(sourceIndex));
+                sendSwitchSourceEvent(subtaskId, sourceIndex);
                 context.assignSplits(
                         new SplitsAssignment<>(Collections.singletonMap(subtaskId, splits)));
                 context.signalNoMoreSplits(subtaskId);
@@ -199,8 +203,7 @@ public class HybridSourceSplitEnumerator
                                     "Restore subtask={}, sourceIndex={}",
                                     subtaskId,
                                     nextSubtaskSourceIndex);
-                            context.sendEventToSourceReader(
-                                    subtaskId, new SwitchSourceEvent(nextSubtaskSourceIndex));
+                            sendSwitchSourceEvent(subtaskId, nextSubtaskSourceIndex);
                             assignPendingSplits(subtaskId);
                         }
                     }
@@ -213,9 +216,7 @@ public class HybridSourceSplitEnumerator
                                 pendingReaders,
                                 currentSourceIndex);
                         for (int pendingReaderSubtaskId : pendingReaders) {
-                            context.sendEventToSourceReader(
-                                    pendingReaderSubtaskId,
-                                    new SwitchSourceEvent(currentSourceIndex));
+                            sendSwitchSourceEvent(pendingReaderSubtaskId, currentSourceIndex);
                         }
                         for (int pendingReaderSubtaskId : pendingReaders) {
                             currentEnumerator.addReader(pendingReaderSubtaskId);
@@ -239,8 +240,7 @@ public class HybridSourceSplitEnumerator
                     switchEnumerator();
                     // switch all readers prior to sending split assignments
                     for (int i = 0; i < context.currentParallelism(); i++) {
-                        context.sendEventToSourceReader(
-                                i, new SwitchSourceEvent(currentSourceIndex));
+                        sendSwitchSourceEvent(i, currentSourceIndex);
                     }
                     // trigger split assignment,
                     // (initially happens as part of subtask/reader registration)
