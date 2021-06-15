@@ -33,12 +33,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.function.BiConsumer;
@@ -68,11 +68,12 @@ public class HybridSourceSplitEnumerator
 
     private final SplitEnumeratorContext<HybridSourceSplit> context;
     private final List<HybridSource.SourceListEntry> sources;
+    // Tracking of completion of processing for current enumerator
     // TODO: SourceCoordinatorContext does not provide access to current assignments
-    private final Map<Integer, List<HybridSourceSplit>> assignments;
+    private final Set<Integer> assignedReaders;
     // Splits that have been returned due to subtask reset
     private final Map<Integer, TreeMap<Integer, List<HybridSourceSplit>>> pendingSplits;
-    private final HashSet<Integer> pendingReaders;
+    private final Set<Integer> pendingReaders;
     private int currentSourceIndex;
     private SplitEnumerator<SourceSplit, Object> currentEnumerator;
 
@@ -84,7 +85,7 @@ public class HybridSourceSplitEnumerator
         this.context = context;
         this.sources = sources;
         this.currentSourceIndex = initialSourceIndex;
-        this.assignments = new HashMap<>();
+        this.assignedReaders = new HashSet<>();
         this.pendingSplits = new HashMap<>();
         this.pendingReaders = new HashSet<>();
     }
@@ -110,7 +111,7 @@ public class HybridSourceSplitEnumerator
 
     @Override
     public void addSplitsBack(List<HybridSourceSplit> splits, int subtaskId) {
-        LOG.debug("Adding splits back for subtask={} {}", subtaskId, splits);
+        LOG.debug("Adding splits back for subtask={} splits={}", subtaskId, splits);
         // Splits returned can belong to multiple sources, after switching since last checkpoint
         TreeMap<Integer, List<HybridSourceSplit>> splitsBySourceIndex = new TreeMap<>();
 
@@ -229,12 +230,12 @@ public class HybridSourceSplitEnumerator
                 }
                 return;
             }
-            this.assignments.remove(subtaskId);
+            this.assignedReaders.remove(subtaskId);
             LOG.info(
                     "Reader finished for subtask {} remaining assignments {}",
                     subtaskId,
-                    assignments);
-            if (this.assignments.isEmpty()) {
+                    assignedReaders);
+            if (this.assignedReaders.isEmpty()) {
                 LOG.debug("No assignments remaining, ready to switch readers!");
                 if (currentSourceIndex + 1 < sources.size()) {
                     switchEnumerator();
@@ -274,7 +275,7 @@ public class HybridSourceSplitEnumerator
         }
 
         SplitEnumeratorContextProxy delegatingContext =
-                new SplitEnumeratorContextProxy(currentSourceIndex, context, assignments);
+                new SplitEnumeratorContextProxy(currentSourceIndex, context, assignedReaders);
         Source<?, ? extends SourceSplit, Object> source =
                 (Source) sources.get(currentSourceIndex).source;
         HybridSource.SourceConfigurer<Source, SplitEnumerator<SourceSplit, Object>> configurer =
@@ -305,16 +306,15 @@ public class HybridSourceSplitEnumerator
 
         private final SplitEnumeratorContext<HybridSourceSplit> realContext;
         private final int sourceIndex;
-        // TODO: SourceCoordinatorContext does not provide access to current assignments
-        private final Map<Integer, List<HybridSourceSplit>> assignments;
+        private final Set<Integer> assignedReaders;
 
-        public SplitEnumeratorContextProxy(
+        private SplitEnumeratorContextProxy(
                 int sourceIndex,
                 SplitEnumeratorContext<HybridSourceSplit> realContext,
-                Map<Integer, List<HybridSourceSplit>> assignments) {
+                Set<Integer> assignedReaders) {
             this.realContext = realContext;
             this.sourceIndex = sourceIndex;
-            this.assignments = assignments;
+            this.assignedReaders = assignedReaders;
         }
 
         @Override
@@ -344,13 +344,7 @@ public class HybridSourceSplitEnumerator
                 List<HybridSourceSplit> splits =
                         HybridSourceSplit.wrapSplits(sourceIndex, e.getValue());
                 wrappedAssignmentMap.put(e.getKey(), splits);
-                assignments.merge(
-                        e.getKey(),
-                        splits,
-                        (all, plus) -> {
-                            all.addAll(plus);
-                            return all;
-                        });
+                assignedReaders.add(e.getKey());
             }
             SplitsAssignment<HybridSourceSplit> wrappedAssignments =
                     new SplitsAssignment<>(wrappedAssignmentMap);
@@ -361,13 +355,7 @@ public class HybridSourceSplitEnumerator
         @Override
         public void assignSplit(SplitT split, int subtask) {
             HybridSourceSplit wrappedSplit = new HybridSourceSplit(sourceIndex, split);
-            assignments.merge(
-                    subtask,
-                    new ArrayList<>(Arrays.asList(wrappedSplit)),
-                    (all, plus) -> {
-                        all.addAll(plus);
-                        return all;
-                    });
+            assignedReaders.add(subtask);
             realContext.assignSplit(wrappedSplit, subtask);
         }
 
