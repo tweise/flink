@@ -68,6 +68,7 @@ public class HybridSourceSplitEnumerator
 
     private final SplitEnumeratorContext<HybridSourceSplit> context;
     private final List<HybridSource.SourceListEntry> sources;
+    private final Map<Integer, Source> switchedSources;
     // Tracking of completion of processing for current enumerator
     // TODO: SourceCoordinatorContext does not provide access to current assignments
     private final Set<Integer> assignedReaders;
@@ -80,7 +81,8 @@ public class HybridSourceSplitEnumerator
     public HybridSourceSplitEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> context,
             List<HybridSource.SourceListEntry> sources,
-            int initialSourceIndex) {
+            int initialSourceIndex,
+            Map<Integer, Source> switchedSources) {
         Preconditions.checkArgument(initialSourceIndex < sources.size());
         this.context = context;
         this.sources = sources;
@@ -88,6 +90,7 @@ public class HybridSourceSplitEnumerator
         this.assignedReaders = new HashSet<>();
         this.pendingSplits = new HashMap<>();
         this.pendingReaders = new HashSet<>();
+        this.switchedSources = switchedSources;
     }
 
     @Override
@@ -153,8 +156,11 @@ public class HybridSourceSplitEnumerator
     }
 
     private void sendSwitchSourceEvent(int subtaskId, int sourceIndex) {
+        Source source = sources.get(sourceIndex).source;
+        switchedSources.put(sourceIndex, source);
         context.sendEventToSourceReader(
-                subtaskId, new SwitchSourceEvent(sourceIndex, sourceIndex >= (sources.size() - 1)));
+                subtaskId,
+                new SwitchSourceEvent(sourceIndex, source, sourceIndex >= (sources.size() - 1)));
     }
 
     private void assignPendingSplits(int subtaskId) {

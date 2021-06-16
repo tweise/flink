@@ -19,6 +19,7 @@
 package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.api.connector.source.ReaderOutput;
+import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceEvent;
 import org.apache.flink.api.connector.source.SourceReader;
 import org.apache.flink.api.connector.source.SourceReaderContext;
@@ -32,6 +33,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -49,7 +51,8 @@ import java.util.concurrent.CompletableFuture;
 public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
     private final SourceReaderContext readerContext;
-    private final List<SourceReader<T, ? extends SourceSplit>> chainedReaders;
+    // private final List<SourceReader<T, ? extends SourceSplit>> chainedReaders;
+    private final Map<Integer, Source> switchedSources;
     private final ArrayDeque<HybridSourceSplit> pendingSplits = new ArrayDeque<>();
     private int currentSourceIndex = -1;
     private boolean isFinalSource;
@@ -57,10 +60,9 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
     private CompletableFuture<Void> availabilityFuture;
 
     public HybridSourceReader(
-            SourceReaderContext readerContext,
-            List<SourceReader<T, ? extends SourceSplit>> readers) {
+            SourceReaderContext readerContext, Map<Integer, Source> switchedSources) {
         this.readerContext = readerContext;
-        this.chainedReaders = readers;
+        this.switchedSources = switchedSources;
     }
 
     @Override
@@ -153,6 +155,7 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                     "Switch source event: subtask={} sourceIndex={}",
                     readerContext.getIndexOfSubtask(),
                     sse.sourceIndex());
+            switchedSources.put(sse.sourceIndex(), sse.source());
             setCurrentReader(sse.sourceIndex());
             isFinalSource = sse.isFinalSource();
             if (availabilityFuture != null && !availabilityFuture.isDone()) {
@@ -191,7 +194,16 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                     currentSourceIndex,
                     currentReader);
         }
-        SourceReader<T, ?> reader = chainedReaders.get(index);
+        // TODO: track previous readers
+        Source source =
+                Preconditions.checkNotNull(
+                        switchedSources.get(index), "Source for index=%s not available", index);
+        SourceReader<T, ?> reader;
+        try {
+            reader = source.createReader(readerContext);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed tp create reader", e);
+        }
         reader.start();
         currentSourceIndex = index;
         currentReader = reader;

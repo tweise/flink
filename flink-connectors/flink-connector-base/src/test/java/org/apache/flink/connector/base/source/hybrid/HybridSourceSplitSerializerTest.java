@@ -18,25 +18,24 @@
 
 package org.apache.flink.connector.base.source.hybrid;
 
-import org.apache.flink.api.connector.source.SourceSplit;
+import org.apache.flink.api.connector.source.Source;
+import org.apache.flink.api.connector.source.mocks.MockSource;
 import org.apache.flink.api.connector.source.mocks.MockSourceSplit;
-import org.apache.flink.api.connector.source.mocks.MockSourceSplitSerializer;
-import org.apache.flink.core.io.SimpleVersionedSerializer;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Tests for {@link HybridSourceSplitSerializer}. */
 public class HybridSourceSplitSerializerTest {
 
     @Test
     public void testSerialization() throws Exception {
-        SimpleVersionedSerializer<SourceSplit> mockSplitSerializer =
-                (SimpleVersionedSerializer) new MockSourceSplitSerializer();
-        HybridSourceSplitSerializer serializer =
-                new HybridSourceSplitSerializer(Collections.singletonList(mockSplitSerializer));
+        Map<Integer, Source> switchedSources = new HashMap<>();
+        switchedSources.put(0, new MockSource(null, 0));
+        HybridSourceSplitSerializer serializer = new HybridSourceSplitSerializer(switchedSources);
         HybridSourceSplit split = new HybridSourceSplit(0, new MockSourceSplit(1));
         byte[] serialized = serializer.serialize(split);
         HybridSourceSplit clonedSplit = serializer.deserialize(0, serialized);
