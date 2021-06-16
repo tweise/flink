@@ -18,6 +18,7 @@
 
 package org.apache.flink.connector.base.source.hybrid;
 
+import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceEvent;
 
 /**
@@ -28,6 +29,7 @@ public class SwitchSourceEvent implements SourceEvent {
 
     private static final long serialVersionUID = 1L;
     private final int sourceIndex;
+    private final Source source;
     private final boolean finalSource;
 
     /**
@@ -35,13 +37,18 @@ public class SwitchSourceEvent implements SourceEvent {
      *
      * @param sourceIndex
      */
-    public SwitchSourceEvent(int sourceIndex, boolean finalSource) {
+    public SwitchSourceEvent(int sourceIndex, Source source, boolean finalSource) {
         this.sourceIndex = sourceIndex;
+        this.source = source;
         this.finalSource = finalSource;
     }
 
     public int sourceIndex() {
         return sourceIndex;
+    }
+
+    public Source source() {
+        return source;
     }
 
     public boolean isFinalSource() {

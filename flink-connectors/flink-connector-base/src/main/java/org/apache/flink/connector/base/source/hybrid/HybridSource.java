@@ -23,7 +23,6 @@ import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceReader;
 import org.apache.flink.api.connector.source.SourceReaderContext;
-import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.connector.source.SplitEnumerator;
 import org.apache.flink.api.connector.source.SplitEnumeratorContext;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
@@ -32,7 +31,9 @@ import org.apache.flink.util.Preconditions;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Hybrid source that switches underlying sources based on configured source chain.
@@ -55,6 +56,8 @@ import java.util.List;
 public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourceEnumeratorState> {
 
     private final List<SourceListEntry> sources;
+    // sources are populated per subtask at switch time
+    private final Map<Integer, Source> switchedSources;
 
     /** Protected for subclass, use {@link #builder(Source)} to construct source. */
     protected HybridSource(List<SourceListEntry> sources) {
@@ -65,6 +68,7 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
                     "All sources except the final source need to be bounded.");
         }
         this.sources = sources;
+        this.switchedSources = new HashMap<>(sources.size());
     }
 
     /** Builder for {@link HybridSource}. */
@@ -81,17 +85,17 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     @Override
     public SourceReader<T, HybridSourceSplit> createReader(SourceReaderContext readerContext)
             throws Exception {
-        List<SourceReader<T, ? extends SourceSplit>> readers = new ArrayList<>();
-        for (SourceListEntry source : sources) {
-            readers.add(source.source.createReader(readerContext));
-        }
-        return new HybridSourceReader(readerContext, readers);
+        // List<SourceReader<T, ? extends SourceSplit>> readers = new ArrayList<>();
+        // for (SourceListEntry source : sources) {
+        //    readers.add(source.source.createReader(readerContext));
+        // }
+        return new HybridSourceReader(readerContext, switchedSources);
     }
 
     @Override
     public SplitEnumerator<HybridSourceSplit, HybridSourceEnumeratorState> createEnumerator(
             SplitEnumeratorContext<HybridSourceSplit> enumContext) {
-        return new HybridSourceSplitEnumerator(enumContext, sources, 0);
+        return new HybridSourceSplitEnumerator(enumContext, sources, 0, switchedSources);
     }
 
     @Override
@@ -100,14 +104,15 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
             HybridSourceEnumeratorState checkpoint)
             throws Exception {
         return new HybridSourceSplitEnumerator(
-                enumContext, sources, checkpoint.getCurrentSourceIndex());
+                enumContext, sources, checkpoint.getCurrentSourceIndex(), switchedSources);
     }
 
     @Override
     public SimpleVersionedSerializer<HybridSourceSplit> getSplitSerializer() {
-        List<SimpleVersionedSerializer<SourceSplit>> serializers = new ArrayList<>();
-        sources.forEach(t -> serializers.add(castSerializer(t.source.getSplitSerializer())));
-        return new HybridSourceSplitSerializer(serializers);
+        // List<SimpleVersionedSerializer<SourceSplit>> serializers = new ArrayList<>();
+        // TODO: serializers are created on demand as underlying sources are created during switch
+        // sources.forEach(t -> serializers.add(castSerializer(t.source.getSplitSerializer())));
+        return new HybridSourceSplitSerializer(switchedSources);
     }
 
     @Override

@@ -19,7 +19,10 @@
 package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.api.connector.source.Boundedness;
+import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceReader;
+import org.apache.flink.api.connector.source.SourceReaderContext;
+import org.apache.flink.api.connector.source.mocks.MockSource;
 import org.apache.flink.api.connector.source.mocks.MockSourceSplit;
 import org.apache.flink.connector.base.source.reader.mocks.MockBaseSource;
 import org.apache.flink.connector.testutils.source.reader.TestingReaderContext;
@@ -31,8 +34,9 @@ import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Tests for {@link HybridSourceReader}. */
 public class HybridSourceReaderTest {
@@ -42,21 +46,33 @@ public class HybridSourceReaderTest {
         TestingReaderContext readerContext = new TestingReaderContext();
         TestingReaderOutput<Integer> readerOutput = new TestingReaderOutput<>();
         MockBaseSource source = new MockBaseSource(1, 1, Boundedness.BOUNDED);
+
         // 2 underlying readers to exercise switch
         SourceReader<Integer, MockSourceSplit> mockSplitReader1 =
                 source.createReader(readerContext);
         SourceReader<Integer, MockSourceSplit> mockSplitReader2 =
                 source.createReader(readerContext);
+
+        Map<Integer, Source> switchedSources = new HashMap<>();
+
         HybridSourceReader<Integer> reader =
-                new HybridSourceReader<>(
-                        readerContext, Arrays.asList(mockSplitReader1, mockSplitReader2));
+                new HybridSourceReader<>(readerContext, switchedSources);
 
         reader.start();
 
         Assert.assertNull(currentReader(reader));
         Assert.assertEquals(InputStatus.NOTHING_AVAILABLE, reader.pollNext(readerOutput));
 
-        reader.handleSourceEvents(new SwitchSourceEvent(0, false));
+        Source source1 =
+                new MockSource(null, 0) {
+                    @Override
+                    public SourceReader<Integer, MockSourceSplit> createReader(
+                            SourceReaderContext readerContext) {
+                        return mockSplitReader1;
+                    }
+                };
+        reader.handleSourceEvents(new SwitchSourceEvent(0, source1, false));
+        Assert.assertEquals(source1, switchedSources.get(0));
         MockSourceSplit mockSplit = new MockSourceSplit(0, 0, 1);
         mockSplit.addRecord(0);
         HybridSourceSplit hybridSplit = new HybridSourceSplit(0, mockSplit);
@@ -89,7 +105,16 @@ public class HybridSourceReaderTest {
 
         Assert.assertEquals(
                 "reader before switch source event", mockSplitReader1, currentReader(reader));
-        reader.handleSourceEvents(new SwitchSourceEvent(1, true));
+
+        Source source2 =
+                new MockSource(null, 0) {
+                    @Override
+                    public SourceReader<Integer, MockSourceSplit> createReader(
+                            SourceReaderContext readerContext) {
+                        return mockSplitReader2;
+                    }
+                };
+        reader.handleSourceEvents(new SwitchSourceEvent(1, source2, true));
         Assert.assertEquals(
                 "reader after switch source event", mockSplitReader2, currentReader(reader));
 

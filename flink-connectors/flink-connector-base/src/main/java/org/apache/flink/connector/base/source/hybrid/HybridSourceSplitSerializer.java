@@ -18,6 +18,7 @@
 
 package org.apache.flink.connector.base.source.hybrid;
 
+import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.util.Preconditions;
@@ -27,16 +28,18 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /** Serializes splits by delegating to the source-indexed underlying split serializer. */
 public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<HybridSourceSplit> {
 
-    final List<? extends SimpleVersionedSerializer<SourceSplit>> serializers;
+    final Map<Integer, SimpleVersionedSerializer<SourceSplit>> cachedSerializers;
+    final Map<Integer, Source> switchedSources;
 
-    public HybridSourceSplitSerializer(
-            List<? extends SimpleVersionedSerializer<SourceSplit>> serializers) {
-        this.serializers = serializers;
+    public HybridSourceSplitSerializer(Map<Integer, Source> switchedSources) {
+        this.cachedSerializers = new HashMap<>();
+        this.switchedSources = switchedSources;
     }
 
     @Override
@@ -80,7 +83,16 @@ public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<Hy
     }
 
     private SimpleVersionedSerializer<SourceSplit> serializerOf(int sourceIndex) {
-        Preconditions.checkArgument(sourceIndex < serializers.size());
-        return serializers.get(sourceIndex);
+        Preconditions.checkArgument(sourceIndex < switchedSources.size());
+        return cachedSerializers.computeIfAbsent(
+                sourceIndex,
+                (k -> {
+                    Source source =
+                            Preconditions.checkNotNull(
+                                    switchedSources.get(k),
+                                    "Source for index=%d not available",
+                                    sourceIndex);
+                    return source.getSplitSerializer();
+                }));
     }
 }
