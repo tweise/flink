@@ -39,14 +39,17 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Hybrid source reader that delegates to the actual source reader.
  *
- * <p>This reader is setup with a sequence of underlying source readers. At a given point in time,
- * one of these readers is active. Underlying readers are opened and closed on demand as determined
- * by the enumerator, which selects the active reader via {@link SwitchSourceEvent}.
+ * <p>This reader processes splits from a sequence of sources as determined by the enumerator. The
+ * current source is provided with {@link SwitchSourceEvent} and the reader does not require upfront
+ * knowledge of the number and order of sources. At a given point in time one underlying reader is
+ * active.
  *
- * <p>When the underlying reader has consumed all input, {@link HybridSourceReader} sends {@link
- * SourceReaderFinishedEvent} to the coordinator.
+ * <p>When the underlying reader has consumed all input for a source, {@link HybridSourceReader}
+ * sends {@link SourceReaderFinishedEvent} to the coordinator.
  *
- * <p>The reader does not make assumptions about the order in which the sources are activated.
+ * <p>This reader does not make assumptions about the order in which sources are activated. When
+ * recovering from a checkpoint it may start processing splits for a previous source, which is
+ * indicated via {@link SwitchSourceEvent}.
  */
 public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
@@ -192,16 +195,9 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
 
     private void setCurrentReader(int index) {
         Preconditions.checkArgument(index != currentSourceIndex);
-        // if (index == currentSourceIndex) {
-        //    LOG.debug(
-        //            "Reader already active: subtask={} sourceIndex={} currentReader={}",
-        //            readerContext.getIndexOfSubtask(),
-        //            currentSourceIndex,
-        //            currentReader);
-        // }
         if (currentReader != null) {
             try {
-                // TODO: retain snapshot splits for reset
+                // TODO: retain splits for snapshotState
                 currentReader.close();
             } catch (Exception e) {
                 throw new RuntimeException("Failed to close current reader", e);
