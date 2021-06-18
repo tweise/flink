@@ -21,6 +21,8 @@ package org.apache.flink.connector.base.source.hybrid;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.ReaderInfo;
 import org.apache.flink.api.connector.source.SplitEnumerator;
+import org.apache.flink.api.connector.source.SplitEnumeratorContext;
+import org.apache.flink.api.connector.source.SplitsAssignment;
 import org.apache.flink.api.connector.source.mocks.MockSourceSplit;
 import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.connector.base.source.reader.mocks.MockBaseSource;
@@ -28,13 +30,13 @@ import org.apache.flink.connector.base.source.reader.mocks.MockSplitEnumerator;
 import org.apache.flink.mock.Whitebox;
 
 import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
@@ -63,6 +65,10 @@ public class HybridSourceSplitEnumeratorTest {
         registerReader(context, enumerator, SUBTASK0);
         assertThat(context.getSplitsAssignmentSequence(), Matchers.emptyIterable());
         registerReader(context, enumerator, SUBTASK1);
+        assertThat(context.getSplitsAssignmentSequence(), Matchers.emptyIterable());
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(-1));
+        assertThat(context.getSplitsAssignmentSequence(), Matchers.iterableWithSize(0));
+        enumerator.handleSourceEvent(SUBTASK1, new SourceReaderFinishedEvent(-1));
         assertThat(context.getSplitsAssignmentSequence(), Matchers.iterableWithSize(1));
         splitFromSource0 =
                 context.getSplitsAssignmentSequence().get(0).assignment().get(SUBTASK0).get(0);
@@ -70,12 +76,14 @@ public class HybridSourceSplitEnumeratorTest {
         assertEquals(0, getCurrentSourceIndex(enumerator));
 
         // trigger source switch
-        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(SUBTASK0));
-        assertEquals("all assignments finished", 1, getCurrentSourceIndex(enumerator));
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(0));
+        assertEquals("one reader finished", 0, getCurrentSourceIndex(enumerator));
+        enumerator.handleSourceEvent(SUBTASK1, new SourceReaderFinishedEvent(0));
+        assertEquals("both readers finished", 1, getCurrentSourceIndex(enumerator));
         assertThat(
                 "switch triggers split assignment",
                 context.getSplitsAssignmentSequence(),
-                Matchers.iterableWithSize(3));
+                Matchers.iterableWithSize(2));
         splitFromSource1 =
                 context.getSplitsAssignmentSequence().get(1).assignment().get(SUBTASK0).get(0);
         assertEquals(1, splitFromSource1.sourceIndex());
@@ -89,7 +97,10 @@ public class HybridSourceSplitEnumeratorTest {
 
         // add split of previous source back (simulates reader reset during recovery)
         context.getSplitsAssignmentSequence().clear();
+        enumerator.addReader(SUBTASK0);
         enumerator.addSplitsBack(Collections.singletonList(splitFromSource0), SUBTASK0);
+        assertThat(context.getSplitsAssignmentSequence(), Matchers.iterableWithSize(0));
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(-1));
         assertSplitAssignment(
                 "addSplitsBack triggers assignment when reader registered",
                 context,
@@ -106,6 +117,8 @@ public class HybridSourceSplitEnumeratorTest {
                 context.getSplitsAssignmentSequence(),
                 Matchers.emptyIterable());
         registerReader(context, enumerator, SUBTASK0);
+        assertThat(context.getSplitsAssignmentSequence(), Matchers.iterableWithSize(0));
+        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(-1));
         assertSplitAssignment(
                 "registerReader triggers assignment", context, 1, splitFromSource0, SUBTASK0);
     }
@@ -125,75 +138,46 @@ public class HybridSourceSplitEnumeratorTest {
                         Whitebox.getInternalState(underlyingEnumeratorWrapper.enumerator, "splits");
         assertThat(mockSourceSplits, Matchers.emptyIterable());
 
-        // remove reader to suppress auto-assignment behavior of mock source
-        context.unregisterReader(SUBTASK0);
-
         // simulate reader reset to before switch by adding split of previous source back
         context.getSplitsAssignmentSequence().clear();
-        enumerator.addSplitsBack(Collections.singletonList(splitFromSource0), SUBTASK0);
-        enumerator.addSplitsBack(Collections.singletonList(splitFromSource1), SUBTASK0);
-        assertThat(mockSourceSplits, Matchers.contains(splitFromSource1.getWrappedSplit()));
-        assertThat(
-                "addSplitsBack doesn't trigger assignment when reader not registered",
-                context.getSplitsAssignmentSequence(),
-                Matchers.emptyIterable());
-
-        enumerator.handleSplitRequest(SUBTASK0, "fakehostname");
-        assertSplitAssignment(
-                "handleSplitRequest triggers assignment of pending split",
-                context,
-                1,
-                splitFromSource0,
-                SUBTASK0);
         assertEquals("current enumerator", 1, getCurrentSourceIndex(enumerator));
 
-        context.getSplitsAssignmentSequence().clear();
-        enumerator.handleSplitRequest(SUBTASK0, "fakehostname");
         assertThat(underlyingEnumeratorWrapper.handleSplitRequests, Matchers.emptyIterable());
-        assertThat(
-                "handleSplitRequest doesn't assign splits",
-                context.getSplitsAssignmentSequence(),
-                Matchers.emptyIterable());
+        enumerator.handleSplitRequest(SUBTASK0, "fakehostname");
 
-        // add back the reader so that underlying enumerator assigns splits for second source
-        assertThat("pending readers", getPendingReaders(enumerator), Matchers.emptyIterable());
-        registerReader(context, enumerator, SUBTASK0);
-        assertThat("pending readers", getPendingReaders(enumerator), Matchers.contains(SUBTASK0));
-        assertThat(mockSourceSplits, Matchers.contains(splitFromSource1.getWrappedSplit()));
-        assertThat(
-                "registerReader doesn't trigger split assignment",
-                context.getSplitsAssignmentSequence(),
-                Matchers.emptyIterable());
-
-        // finish from previous reader triggers switch to next reader
-        enumerator.handleSourceEvent(SUBTASK0, new SourceReaderFinishedEvent(SUBTASK0));
-
-        assertThat("pending readers", getPendingReaders(enumerator), Matchers.emptyIterable());
-        assertThat(mockSourceSplits, Matchers.emptyIterable());
         assertSplitAssignment(
                 "handleSplitRequest triggers assignment of split by underlying enumerator",
                 context,
                 1,
-                splitFromSource1,
+                new HybridSourceSplit(1, UnderlyingEnumeratorWrapper.SPLIT_1),
                 SUBTASK0);
 
-        enumerator.handleSplitRequest(SUBTASK1, "fakehostname");
-        assertThat(underlyingEnumeratorWrapper.handleSplitRequests, Matchers.contains(SUBTASK1));
+        // handleSplitRequest invalid during reset
+        enumerator.addSplitsBack(Collections.singletonList(splitFromSource0), SUBTASK0);
+        try {
+            enumerator.handleSplitRequest(SUBTASK0, "fakehostname");
+            Assert.fail("expected exception");
+        } catch (IllegalStateException ex) {
+        }
     }
 
     private static class UnderlyingEnumeratorWrapper
             implements SplitEnumerator<MockSourceSplit, Object> {
+        private static final MockSourceSplit SPLIT_1 = new MockSourceSplit(0, 0, 1);
         private final List<Integer> handleSplitRequests = new ArrayList<>();
         private final MockSplitEnumerator enumerator;
+        private final SplitEnumeratorContext context;
 
         private UnderlyingEnumeratorWrapper(MockSplitEnumerator enumerator) {
             this.enumerator = enumerator;
+            this.context =
+                    (SplitEnumeratorContext) Whitebox.getInternalState(enumerator, "context");
         }
 
         @Override
         public void handleSplitRequest(int subtaskId, String requesterHostname) {
             handleSplitRequests.add(subtaskId);
-            enumerator.handleSplitRequest(subtaskId, requesterHostname);
+            context.assignSplits(new SplitsAssignment(SPLIT_1, subtaskId));
         }
 
         @Override
@@ -249,9 +233,5 @@ public class HybridSourceSplitEnumeratorTest {
 
     private static int getCurrentSourceIndex(HybridSourceSplitEnumerator enumerator) {
         return (int) Whitebox.getInternalState(enumerator, "currentSourceIndex");
-    }
-
-    private static Set<Integer> getPendingReaders(HybridSourceSplitEnumerator enumerator) {
-        return (Set<Integer>) Whitebox.getInternalState(enumerator, "pendingReaders");
     }
 }

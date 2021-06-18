@@ -83,14 +83,13 @@ public class HybridSourceSplitSerializer implements SimpleVersionedSerializer<Hy
     }
 
     private SimpleVersionedSerializer<SourceSplit> serializerOf(int sourceIndex) {
-        Preconditions.checkArgument(sourceIndex < switchedSources.size());
         return cachedSerializers.computeIfAbsent(
                 sourceIndex,
                 (k -> {
                     Source source =
                             Preconditions.checkNotNull(
                                     switchedSources.get(k),
-                                    "Source for index=%d not available",
+                                    "Source for index=%s not available",
                                     sourceIndex);
                     return source.getSplitSerializer();
                 }));

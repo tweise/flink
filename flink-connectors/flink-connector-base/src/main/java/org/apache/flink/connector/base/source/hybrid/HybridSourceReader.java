@@ -30,8 +30,8 @@ import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -51,13 +51,12 @@ import java.util.concurrent.CompletableFuture;
 public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(HybridSourceReader.class);
     private final SourceReaderContext readerContext;
-    // private final List<SourceReader<T, ? extends SourceSplit>> chainedReaders;
     private final Map<Integer, Source> switchedSources;
-    private final ArrayDeque<HybridSourceSplit> pendingSplits = new ArrayDeque<>();
     private int currentSourceIndex = -1;
     private boolean isFinalSource;
     private SourceReader<T, ? extends SourceSplit> currentReader;
     private CompletableFuture<Void> availabilityFuture;
+    private List<HybridSourceSplit> restoredSplits = new ArrayList<>();
 
     public HybridSourceReader(
             SourceReaderContext readerContext, Map<Integer, Source> switchedSources) {
@@ -68,6 +67,12 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
     @Override
     public void start() {
         // underlying reader starts on demand with split assignment
+        int initialSourceIndex = currentSourceIndex;
+        if (!restoredSplits.isEmpty()) {
+            initialSourceIndex = restoredSplits.get(0).sourceIndex() - 1;
+        }
+        readerContext.sendSourceEventToCoordinator(
+                new SourceReaderFinishedEvent(initialSourceIndex));
     }
 
     @Override
@@ -123,16 +128,21 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                 currentSourceIndex,
                 currentReader,
                 splits);
-        List<SourceSplit> realSplits = new ArrayList<>(splits.size());
-        for (HybridSourceSplit split : splits) {
-            Preconditions.checkState(
-                    split.sourceIndex() == currentSourceIndex,
-                    "Split %s while current source is %s",
-                    split,
-                    currentSourceIndex);
-            realSplits.add(split.getWrappedSplit());
+        if (currentSourceIndex < 0) {
+            // splits added back during reader recovery
+            restoredSplits.addAll(splits);
+        } else {
+            List<SourceSplit> realSplits = new ArrayList<>(splits.size());
+            for (HybridSourceSplit split : splits) {
+                Preconditions.checkState(
+                        split.sourceIndex() == currentSourceIndex,
+                        "Split %s while current source is %s",
+                        split,
+                        currentSourceIndex);
+                realSplits.add(split.getWrappedSplit());
+            }
+            currentReader.addSplits((List) realSplits);
         }
-        currentReader.addSplits((List) realSplits);
     }
 
     @Override
@@ -152,9 +162,10 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
         if (sourceEvent instanceof SwitchSourceEvent) {
             SwitchSourceEvent sse = (SwitchSourceEvent) sourceEvent;
             LOG.info(
-                    "Switch source event: subtask={} sourceIndex={}",
+                    "Switch source event: subtask={} sourceIndex={} source={}",
                     readerContext.getIndexOfSubtask(),
-                    sse.sourceIndex());
+                    sse.sourceIndex(),
+                    sse.source());
             switchedSources.put(sse.sourceIndex(), sse.source());
             setCurrentReader(sse.sourceIndex());
             isFinalSource = sse.isFinalSource();
@@ -181,6 +192,13 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
 
     private void setCurrentReader(int index) {
         Preconditions.checkArgument(index != currentSourceIndex);
+        // if (index == currentSourceIndex) {
+        //    LOG.debug(
+        //            "Reader already active: subtask={} sourceIndex={} currentReader={}",
+        //            readerContext.getIndexOfSubtask(),
+        //            currentSourceIndex,
+        //            currentReader);
+        // }
         if (currentReader != null) {
             try {
                 // TODO: retain snapshot splits for reset
@@ -189,12 +207,12 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                 throw new RuntimeException("Failed to close current reader", e);
             }
             LOG.debug(
-                    "Reader closed: subtask={} sourceIndex={} {}",
+                    "Reader closed: subtask={} sourceIndex={} currentReader={}",
                     readerContext.getIndexOfSubtask(),
                     currentSourceIndex,
                     currentReader);
         }
-        // TODO: track previous readers
+        // TODO: track previous readers splits till checkpoint
         Source source =
                 Preconditions.checkNotNull(
                         switchedSources.get(index), "Source for index=%s not available", index);
@@ -212,5 +230,18 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
                 readerContext.getIndexOfSubtask(),
                 currentSourceIndex,
                 reader);
+        // add restored splits
+        if (!restoredSplits.isEmpty()) {
+            List<HybridSourceSplit> splits = new ArrayList<>(restoredSplits.size());
+            Iterator<HybridSourceSplit> it = restoredSplits.iterator();
+            while (it.hasNext()) {
+                HybridSourceSplit hybridSplit = it.next();
+                if (hybridSplit.sourceIndex() == index) {
+                    splits.add(hybridSplit);
+                    it.remove();
+                }
+            }
+            addSplits(splits);
+        }
     }
 }

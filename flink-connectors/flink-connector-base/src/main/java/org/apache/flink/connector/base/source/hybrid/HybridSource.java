@@ -103,6 +103,7 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
             SplitEnumeratorContext<HybridSourceSplit> enumContext,
             HybridSourceEnumeratorState checkpoint)
             throws Exception {
+        // TODO: restore underlying enumerator
         return new HybridSourceSplitEnumerator(
                 enumContext, sources, checkpoint.getCurrentSourceIndex(), switchedSources);
     }

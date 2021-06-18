@@ -124,7 +124,10 @@ public class HybridSourceITCase extends TestLogger {
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(PARALLELISM);
-        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
+        env.setRestartStrategy(
+                FailoverType.NONE == failoverType
+                        ? RestartStrategies.noRestart()
+                        : RestartStrategies.fixedDelayRestart(1, 0));
 
         final DataStream<Integer> stream =
                 env.fromSource(source, WatermarkStrategy.noWatermarks(), "hybrid-source")
