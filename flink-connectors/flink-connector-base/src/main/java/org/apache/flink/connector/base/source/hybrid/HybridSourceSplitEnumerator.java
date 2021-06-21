@@ -141,7 +141,7 @@ public class HybridSourceSplitEnumerator
 
     private void sendSwitchSourceEvent(int subtaskId, int sourceIndex) {
         readerSourceIndex.put(subtaskId, sourceIndex);
-        Source source = sources.get(sourceIndex).source;
+        Source source = Preconditions.checkNotNull(switchedSources.get(sourceIndex));
         context.sendEventToSourceReader(
                 subtaskId,
                 new SwitchSourceEvent(sourceIndex, source, sourceIndex >= (sources.size() - 1)));
@@ -240,16 +240,17 @@ public class HybridSourceSplitEnumerator
             currentSourceIndex++;
         }
 
+        Source<?, ? extends SourceSplit, Object> source =
+                switchedSources.computeIfAbsent(
+                        currentSourceIndex,
+                        k -> {
+                            return sources.get(currentSourceIndex)
+                                    .configurer
+                                    .create(previousEnumerator);
+                        });
+        switchedSources.put(currentSourceIndex, source);
         SplitEnumeratorContextProxy delegatingContext =
                 new SplitEnumeratorContextProxy(currentSourceIndex, context, readerSourceIndex);
-        Source<?, ? extends SourceSplit, Object> source =
-                (Source) sources.get(currentSourceIndex).source;
-        HybridSource.SourceConfigurer<Source, SplitEnumerator<SourceSplit, Object>> configurer =
-                sources.get(currentSourceIndex).configurer;
-        if (configurer != null) {
-            source = configurer.configure(source, previousEnumerator);
-        }
-        switchedSources.put(currentSourceIndex, source);
         try {
             currentEnumerator = source.createEnumerator(delegatingContext);
         } catch (Exception e) {

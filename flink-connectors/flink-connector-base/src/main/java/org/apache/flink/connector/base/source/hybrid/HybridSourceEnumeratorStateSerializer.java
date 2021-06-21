@@ -18,6 +18,7 @@
 
 package org.apache.flink.connector.base.source.hybrid;
 
+import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.util.Preconditions;
 
@@ -26,7 +27,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /** The {@link SimpleVersionedSerializer Serializer} for the enumerator state. */
 public class HybridSourceEnumeratorStateSerializer
@@ -34,11 +36,12 @@ public class HybridSourceEnumeratorStateSerializer
 
     private static final int CURRENT_VERSION = 0;
 
-    final List<SimpleVersionedSerializer<Object>> serializers;
+    private final Map<Integer, SimpleVersionedSerializer<Object>> cachedSerializers;
+    private final Map<Integer, Source> switchedSources;
 
-    public HybridSourceEnumeratorStateSerializer(
-            List<SimpleVersionedSerializer<Object>> serializers) {
-        this.serializers = serializers;
+    public HybridSourceEnumeratorStateSerializer(Map<Integer, Source> switchedSources) {
+        this.switchedSources = switchedSources;
+        this.cachedSerializers = new HashMap<>();
     }
 
     @Override
@@ -88,7 +91,15 @@ public class HybridSourceEnumeratorStateSerializer
     }
 
     private SimpleVersionedSerializer<Object> serializerOf(int sourceIndex) {
-        Preconditions.checkArgument(sourceIndex < serializers.size());
-        return serializers.get(sourceIndex);
+        return cachedSerializers.computeIfAbsent(
+                sourceIndex,
+                (k -> {
+                    Source source =
+                            Preconditions.checkNotNull(
+                                    switchedSources.get(k),
+                                    "Source for index=%s not available",
+                                    sourceIndex);
+                    return source.getEnumeratorCheckpointSerializer();
+                }));
     }
 }

@@ -111,12 +111,11 @@ public class HybridSourceITCase extends TestLogger {
     private Source sourceWithDynamicSwitchPosition() {
         return HybridSource.builder(new MockBaseSource(2, 10, Boundedness.BOUNDED))
                 .addSource(
-                        new MockBaseSource(1, 1, Boundedness.BOUNDED),
-                        (source, enumerator) -> {
-                            // customize source here
-                            source = new MockBaseSource(2, 10, 20, Boundedness.BOUNDED);
-                            return source;
-                        })
+                        (enumerator) -> {
+                            // lazily create source here
+                            return new MockBaseSource(2, 10, 20, Boundedness.BOUNDED);
+                        },
+                        Boundedness.BOUNDED)
                 .build();
     }
 

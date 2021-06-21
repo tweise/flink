@@ -30,7 +30,6 @@ import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,15 +39,15 @@ import java.util.Map;
  *
  * <pre>{@code
  * FileSource<String> fileSource = null;
- * KafkaSource<String> kafkaSource = null;
  * HybridSource<String> hybridSource =
- *     new HybridSourceBuilder<String, ContinuousFileSplitEnumerator>(fileSource)
+ *     new HybridSourceBuilder<String, ContinuousFileSplitEnumerator>()
+ *         .addSource(fileSource) // fixed start position
  *         .addSource(
- *             kafkaSource,
- *             (source, enumerator) -> {
- *               // customize Kafka source here
- *               return source;
- *             })
+ *             (enumerator) -> {
+ *               // instantiate Kafka source based on enumerator
+ *               KafkaSource<String> kafkaSource = createKafkaSource(enumerator);
+ *               return kafkaSource;
+ *             }, Boundedness.CONTINUOUS_UNBOUNDED)
  *         .build();
  * }</pre>
  */
@@ -64,7 +63,7 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
         Preconditions.checkArgument(!sources.isEmpty());
         for (int i = 0; i < sources.size() - 1; i++) {
             Preconditions.checkArgument(
-                    Boundedness.BOUNDED.equals(sources.get(i).source.getBoundedness()),
+                    Boundedness.BOUNDED.equals(sources.get(i).boundedness),
                     "All sources except the final source need to be bounded.");
         }
         this.sources = sources;
@@ -74,21 +73,18 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     /** Builder for {@link HybridSource}. */
     public static <T, EnumT extends SplitEnumerator> HybridSourceBuilder<T, EnumT> builder(
             Source<T, ?, ?> firstSource) {
-        return new HybridSourceBuilder<>(firstSource);
+        HybridSourceBuilder<T, EnumT> builder = new HybridSourceBuilder<>();
+        return builder.addSource(firstSource);
     }
 
     @Override
     public Boundedness getBoundedness() {
-        return sources.get(sources.size() - 1).source.getBoundedness();
+        return sources.get(sources.size() - 1).boundedness;
     }
 
     @Override
     public SourceReader<T, HybridSourceSplit> createReader(SourceReaderContext readerContext)
             throws Exception {
-        // List<SourceReader<T, ? extends SourceSplit>> readers = new ArrayList<>();
-        // for (SourceListEntry source : sources) {
-        //    readers.add(source.source.createReader(readerContext));
-        // }
         return new HybridSourceReader(readerContext, switchedSources);
     }
 
@@ -110,69 +106,64 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
 
     @Override
     public SimpleVersionedSerializer<HybridSourceSplit> getSplitSerializer() {
-        // List<SimpleVersionedSerializer<SourceSplit>> serializers = new ArrayList<>();
-        // TODO: serializers are created on demand as underlying sources are created during switch
-        // sources.forEach(t -> serializers.add(castSerializer(t.source.getSplitSerializer())));
         return new HybridSourceSplitSerializer(switchedSources);
     }
 
     @Override
     public SimpleVersionedSerializer<HybridSourceEnumeratorState>
             getEnumeratorCheckpointSerializer() {
-        List<SimpleVersionedSerializer<Object>> serializers = new ArrayList<>();
-        sources.forEach(
-                t -> serializers.add(castSerializer(t.source.getEnumeratorCheckpointSerializer())));
-        return new HybridSourceEnumeratorStateSerializer(serializers);
-    }
-
-    private static <T> SimpleVersionedSerializer<T> castSerializer(
-            SimpleVersionedSerializer<? extends T> s) {
-        @SuppressWarnings("rawtypes")
-        SimpleVersionedSerializer s1 = s;
-        return s1;
+        return new HybridSourceEnumeratorStateSerializer(switchedSources);
     }
 
     /**
-     * Callback for switch time customization of the underlying source, typically to dynamically set
-     * a start position from previous enumerator end state.
+     * Factory for underlying sources of {@link HybridSource}.
      *
-     * <p>Requires the ability to augment the existing source (or clone and modify). Provides the
-     * flexibility to set start position in any way a source allows, in a source specific way.
-     * Future convenience could be built on top of it, for example an implementation recognizes
-     * optional interfaces.
+     * <p>This factory permits building of a source at graph construction time or deferred at switch
+     * time. Provides the ability to set a start position in any way a specific source allows.
+     * Future convenience could be built on top of it, for example a default implementation that
+     * recognizes optional interfaces to transfer position in a universal format.
      *
      * <p>Called when the current enumerator has finished and before the next enumerator is created.
-     * The enumerator end state can thus be used to set the next source's start start position.
+     * The enumerator end state can thus be used to set the next source's start start position. Only
+     * required for dynamic position transfer at time of switching.
      *
-     * <p>Only required for dynamic position transfer at time of switching, otherwise source can be
-     * preconfigured with a start position during job submission.
+     * <p>If start position is known at job submission time, the source can be constructed in the
+     * entry point and simply wrapped into the factory, providing the benefit of validation during
+     * submission.
      */
-    public interface SourceConfigurer<SourceT extends Source, FromEnumT extends SplitEnumerator>
+    public interface SourceFactory<T, SourceT extends Source, FromEnumT extends SplitEnumerator>
             extends Serializable {
-        SourceT configure(SourceT source, FromEnumT enumerator);
+        SourceT create(FromEnumT enumerator);
     }
 
-    private static class NoopSourceConfigurer<
-                    SourceT extends Source, FromEnumT extends SplitEnumerator>
-            implements SourceConfigurer<SourceT, FromEnumT> {
+    private static class PassthroughSourceFactory<
+                    T, SourceT extends Source<T, ?, ?>, FromEnumT extends SplitEnumerator>
+            implements SourceFactory<T, SourceT, FromEnumT> {
+
+        private final SourceT source;
+
+        private PassthroughSourceFactory(SourceT source) {
+            this.source = source;
+        }
+
         @Override
-        public SourceT configure(SourceT source, FromEnumT enumerator) {
+        public SourceT create(FromEnumT enumerator) {
             return source;
         }
     }
 
     /** Entry for list of underlying sources. */
     protected static class SourceListEntry implements Serializable {
-        protected final Source source;
-        protected final SourceConfigurer configurer;
+        protected final SourceFactory configurer;
+        protected final Boundedness boundedness;
 
-        private SourceListEntry(Source source, SourceConfigurer configurer) {
-            this.source = source;
-            this.configurer = configurer;
+        private SourceListEntry(SourceFactory configurer, Boundedness boundedness) {
+            this.configurer = Preconditions.checkNotNull(configurer);
+            this.boundedness = Preconditions.checkNotNull(boundedness);
         }
 
-        public static SourceListEntry of(Source source, SourceConfigurer configurer) {
-            return new SourceListEntry(source, configurer);
+        public static SourceListEntry of(SourceFactory configurer, Boundedness boundedness) {
+            return new SourceListEntry(configurer, boundedness);
         }
     }
 
@@ -181,37 +172,28 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
             implements Serializable {
         private final List<SourceListEntry> sources;
 
-        public HybridSourceBuilder(Source<T, ?, ?> initialSource) {
-            this(concat(Collections.emptyList(), SourceListEntry.of(initialSource, null)));
+        public HybridSourceBuilder() {
+            sources = new ArrayList<>();
         }
 
-        private HybridSourceBuilder(List<SourceListEntry> sources) {
-            this.sources = sources;
-        }
-
-        /** Add source without switch time modification. */
+        /** Add pre-configured source (without switch time modification). */
         public <ToEnumT extends SplitEnumerator, NextSourceT extends Source<T, ?, ?>>
                 HybridSourceBuilder<T, ToEnumT> addSource(NextSourceT source) {
-            return addSource(source, new NoopSourceConfigurer<>());
+            return addSource(new PassthroughSourceFactory<>(source), source.getBoundedness());
         }
 
-        /** Add source with start position conversion from previous enumerator. */
+        /** Add source with deferred instantiation based on previous enumerator. */
         public <ToEnumT extends SplitEnumerator, NextSourceT extends Source<T, ?, ?>>
                 HybridSourceBuilder<T, ToEnumT> addSource(
-                        NextSourceT source, SourceConfigurer<NextSourceT, EnumT> sourceConfigurer) {
-            return new HybridSourceBuilder<>(
-                    concat(this.sources, SourceListEntry.of(source, sourceConfigurer)));
+                        SourceFactory<T, NextSourceT, EnumT> sourceFactory,
+                        Boundedness boundedness) {
+            sources.add(SourceListEntry.of(sourceFactory, boundedness));
+            return (HybridSourceBuilder) this;
         }
 
         /** Build the source. */
         public HybridSource<T> build() {
             return new HybridSource(sources);
-        }
-
-        private static <T> List<T> concat(List<T> src, T element) {
-            List<T> result = new ArrayList<>(src);
-            result.add(element);
-            return result;
         }
     }
 }
