@@ -19,12 +19,14 @@
 package org.apache.flink.connector.base.source.hybrid;
 
 import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.connector.source.SourceReader;
 import org.apache.flink.api.connector.source.SourceReaderContext;
 import org.apache.flink.api.connector.source.SplitEnumerator;
 import org.apache.flink.api.connector.source.SplitEnumeratorContext;
+import org.apache.flink.api.java.ClosureCleaner;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.util.Preconditions;
 
@@ -187,6 +189,8 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
                 HybridSourceBuilder<T, ToEnumT> addSource(
                         SourceFactory<T, NextSourceT, EnumT> sourceFactory,
                         Boundedness boundedness) {
+            ClosureCleaner.clean(
+                    sourceFactory, ExecutionConfig.ClosureCleanerLevel.RECURSIVE, true);
             sources.add(SourceListEntry.of(sourceFactory, boundedness));
             return (HybridSourceBuilder) this;
         }
