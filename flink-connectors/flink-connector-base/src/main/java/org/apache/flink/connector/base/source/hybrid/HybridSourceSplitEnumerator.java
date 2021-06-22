@@ -305,16 +305,26 @@ public class HybridSourceSplitEnumerator
             // TODO: not start enumerator until readers are ready?
             Map<Integer, ReaderInfo> readers = realContext.registeredReaders();
             if (readers.size() != readerSourceIndex.size()) {
-                return Collections.emptyMap();
+                return filterRegisteredReaders(readers);
             }
             Integer lastIndex = null;
             for (Integer sourceIndex : readerSourceIndex.values()) {
                 if (lastIndex != null && lastIndex != sourceIndex) {
-                    return Collections.emptyMap();
+                    return filterRegisteredReaders(readers);
                 }
                 lastIndex = sourceIndex;
             }
             return readers;
+        }
+
+        private Map<Integer, ReaderInfo> filterRegisteredReaders(Map<Integer, ReaderInfo> readers) {
+            Map<Integer, ReaderInfo> readersForSource = new HashMap<>(readers.size());
+            for (Map.Entry<Integer, ReaderInfo> e : readers.entrySet()) {
+                if (readerSourceIndex.get(e.getKey()) == (Integer) sourceIndex) {
+                    readersForSource.put(e.getKey(), e.getValue());
+                }
+            }
+            return readersForSource;
         }
 
         @Override
