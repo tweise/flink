@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -108,7 +109,10 @@ public class HybridSourceReader<T> implements SourceReader<T, HybridSourceSplit>
 
     @Override
     public List<HybridSourceSplit> snapshotState(long checkpointId) {
-        List<? extends SourceSplit> state = currentReader.snapshotState(checkpointId);
+        List<? extends SourceSplit> state =
+                currentReader != null
+                        ? currentReader.snapshotState(checkpointId)
+                        : Collections.emptyList();
         return HybridSourceSplit.wrapSplits(currentSourceIndex, state);
     }
 
