@@ -63,11 +63,6 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     /** Protected for subclass, use {@link #builder(Source)} to construct source. */
     protected HybridSource(List<SourceListEntry> sources) {
         Preconditions.checkArgument(!sources.isEmpty());
-        for (int i = 0; i < sources.size() - 1; i++) {
-            Preconditions.checkArgument(
-                    Boundedness.BOUNDED.equals(sources.get(i).boundedness),
-                    "All sources except the final source need to be bounded.");
-        }
         this.sources = sources;
         this.switchedSources = new HashMap<>(sources.size());
     }
@@ -155,16 +150,16 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
     }
 
     /** Entry for list of underlying sources. */
-    protected static class SourceListEntry implements Serializable {
-        protected final SourceFactory configurer;
+    static class SourceListEntry implements Serializable {
+        protected final SourceFactory factory;
         protected final Boundedness boundedness;
 
-        private SourceListEntry(SourceFactory configurer, Boundedness boundedness) {
-            this.configurer = Preconditions.checkNotNull(configurer);
+        private SourceListEntry(SourceFactory factory, Boundedness boundedness) {
+            this.factory = Preconditions.checkNotNull(factory);
             this.boundedness = Preconditions.checkNotNull(boundedness);
         }
 
-        public static SourceListEntry of(SourceFactory configurer, Boundedness boundedness) {
+        static SourceListEntry of(SourceFactory configurer, Boundedness boundedness) {
             return new SourceListEntry(configurer, boundedness);
         }
     }
@@ -189,6 +184,11 @@ public class HybridSource<T> implements Source<T, HybridSourceSplit, HybridSourc
                 HybridSourceBuilder<T, ToEnumT> addSource(
                         SourceFactory<T, NextSourceT, EnumT> sourceFactory,
                         Boundedness boundedness) {
+            if (!sources.isEmpty()) {
+                Preconditions.checkArgument(
+                        Boundedness.BOUNDED.equals(sources.get(sources.size() - 1).boundedness),
+                        "All sources except the final source need to be bounded.");
+            }
             ClosureCleaner.clean(
                     sourceFactory, ExecutionConfig.ClosureCleanerLevel.RECURSIVE, true);
             sources.add(SourceListEntry.of(sourceFactory, boundedness));

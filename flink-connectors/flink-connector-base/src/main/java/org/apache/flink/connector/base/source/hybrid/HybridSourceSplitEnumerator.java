@@ -245,7 +245,7 @@ public class HybridSourceSplitEnumerator
                         currentSourceIndex,
                         k -> {
                             return sources.get(currentSourceIndex)
-                                    .configurer
+                                    .factory
                                     .create(previousEnumerator);
                         });
         switchedSources.put(currentSourceIndex, source);
